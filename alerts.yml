@@ -1,0 +1,56 @@
+groups:
+  - name: fiber_dashboard
+    rules:
+      - alert: FiberDashboardScrapeDown
+        expr: fiber_dashboard_scrape_success == 0
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Fiber Dashboard health_check unreachable"
+          description: "The exporter has been unable to scrape /health_check for over 2 minutes."
+
+      - alert: FiberDashboardTaskStale
+        expr: fiber_dashboard_heartbeat_healthy == 0
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Fiber Dashboard task {{ $labels.task }} heartbeat is stale"
+          description: "The background task {{ $labels.task }} has not updated its heartbeat for over {{ $value }}s."
+
+      - alert: FiberDashboardNetworkScrapeDown
+        expr: fiber_dashboard_network_scrape_success == 0
+        for: 2m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Fiber Dashboard analysis_hourly unreachable for {{ $labels.network }}"
+          description: "The exporter has been unable to scrape /analysis_hourly for {{ $labels.network }} for over 2 minutes."
+
+      - alert: FiberDashboardNoNodes
+        expr: fiber_dashboard_total_nodes == 0
+        for: 10m
+        labels:
+          severity: critical
+        annotations:
+          summary: "No active nodes on {{ $labels.network }}"
+          description: "The Fiber Network {{ $labels.network }} reports 0 active nodes for over 10 minutes."
+
+      - alert: FiberDashboardNoChannels
+        expr: fiber_dashboard_total_channels == 0
+        for: 10m
+        labels:
+          severity: critical
+        annotations:
+          summary: "No active channels on {{ $labels.network }}"
+          description: "The Fiber Network {{ $labels.network }} reports 0 active channels for over 10 minutes."
+
+      - alert: FiberDashboardNodeCountDrop
+        expr: delta(fiber_dashboard_total_nodes[1h]) < -5
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Significant node count drop on {{ $labels.network }}"
+          description: "Node count on {{ $labels.network }} dropped by {{ $value }} in the last hour."
