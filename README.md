@@ -130,7 +130,10 @@ Add a scrape job to your `prometheus.yml`:
 scrape_configs:
   - job_name: fiber_dashboard
     static_configs:
-      - targets: ["localhost:9101"]
+      - targets:
+          - "localhost:9101"
+        labels:
+          env: prod
 ```
 
 ## Alert Rules
@@ -214,6 +217,10 @@ fiber_dashboard_total_channels{network="testnet"} 37.0
 │  (optional)  │
 └──────────────┘
 ```
+
+## Import Grafana
+
+![grafana dashboard](img/grafana1.png)
 
 ## License
 
