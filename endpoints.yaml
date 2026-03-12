@@ -1,0 +1,51 @@
+# Example endpoint configuration for fiber-dashboard-exporter
+#
+# Pass this file with: --config endpoints.yaml
+#
+# Each entry requires a 'url' key (a path relative to --target-url, or a full
+# absolute URL) and a 'name' key that selects the right metric parser.
+#
+# The network label is auto-detected from the "net=" query parameter in the URL.
+
+endpoints:
+  # /analysis_hourly — total nodes, channels, capacity, liquidity
+  - url: "/analysis_hourly?net=mainnet"
+    name: "analysis_hourly"
+  - url: "/analysis_hourly?net=testnet"
+    name: "analysis_hourly"
+
+  # /all_region — node count per geographic region
+  - url: "/all_region?net=mainnet"
+    name: "all_region"
+  - url: "/all_region?net=testnet"
+    name: "all_region"
+
+  # /nodes_hourly — paginated node list; exposes total count from pagination metadata
+  - url: "/nodes_hourly?page=0&page_size=10&net=mainnet"
+    name: "nodes_hourly"
+  - url: "/nodes_hourly?page=0&page_size=10&net=testnet"
+    name: "nodes_hourly"
+
+  # /channels_hourly — paginated channel list; exposes total count from pagination metadata
+  - url: "/channels_hourly?page=0&page_size=500&net=mainnet"
+    name: "channels_hourly"
+  - url: "/channels_hourly?page=0&page_size=500&net=testnet"
+    name: "channels_hourly"
+
+  # /channel_capacity_distribution — channel counts per capacity bucket
+  - url: "/channel_capacity_distribution?net=mainnet"
+    name: "channel_capacity_distribution"
+  - url: "/channel_capacity_distribution?net=testnet"
+    name: "channel_capacity_distribution"
+
+  # /channel_count_by_state — channel counts broken down by state
+  - url: "/channel_count_by_state?net=mainnet"
+    name: "channel_count_by_state"
+  - url: "/channel_count_by_state?net=testnet"
+    name: "channel_count_by_state"
+
+  # /group_channel_by_state — grouped channel details by state
+  - url: "/group_channel_by_state?state=closed_cooperative&state=closed_uncooperative&state=closed_waiting_onchain_settlement&state=open&page=0&page_size=10&sort_by=last_commit_time&order=desc&asset_name=ckb&net=mainnet"
+    name: "group_channel_by_state"
+  - url: "/group_channel_by_state?state=closed_cooperative&state=closed_uncooperative&state=closed_waiting_onchain_settlement&state=open&page=0&page_size=10&sort_by=last_commit_time&order=desc&asset_name=ckb&net=testnet"
+    name: "group_channel_by_state"

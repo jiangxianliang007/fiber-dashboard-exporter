@@ -54,3 +54,22 @@ groups:
         annotations:
           summary: "Significant node count drop on {{ $labels.network }}"
           description: "Node count on {{ $labels.network }} dropped by {{ $value }} in the last hour."
+
+      - alert: FiberDashboardEndpointScrapeDown
+        expr: fiber_dashboard_endpoint_scrape_success == 0
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Fiber Dashboard endpoint {{ $labels.endpoint }} ({{ $labels.network }}) scrape failing"
+          description: "The exporter has been unable to scrape the {{ $labels.endpoint }} endpoint for {{ $labels.network }} for over 5 minutes."
+
+      - alert: FiberDashboardEndpointScrapeSlow
+        expr: fiber_dashboard_endpoint_scrape_duration_seconds > 10
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Fiber Dashboard endpoint {{ $labels.endpoint }} ({{ $labels.network }}) is slow"
+          description: "The {{ $labels.endpoint }} endpoint for {{ $labels.network }} is taking over {{ $value }}s to respond."
+
