@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import argparse
 import logging
+import os
 import signal
 import sys
 import time
@@ -27,6 +28,7 @@ except ImportError:
     pass
 
 import requests
+import yaml
 from prometheus_client import Gauge, Info, start_http_server
 
 logger = logging.getLogger("fiber_dashboard_exporter")
@@ -83,6 +85,28 @@ NETWORK_SCRAPE_SUCCESS = Gauge(
     "fiber_dashboard_network_scrape_success",
     "Whether the last scrape of /analysis_hourly succeeded (1) or failed (0)",
     ["network"],
+)
+
+# ---------------------------------------------------------------------------
+# Metrics — API endpoint availability
+# ---------------------------------------------------------------------------
+
+API_HTTP_STATUS_CODE = Gauge(
+    "fiber_dashboard_api_http_status_code",
+    "HTTP status code returned by the API endpoint (0 = connection failure)",
+    ["endpoint", "network", "url"],
+)
+
+API_HTTP_DURATION_SECONDS = Gauge(
+    "fiber_dashboard_api_http_duration_seconds",
+    "Response time in seconds for the API endpoint",
+    ["endpoint", "network", "url"],
+)
+
+API_UP = Gauge(
+    "fiber_dashboard_api_up",
+    "1 if the API endpoint returned a 2xx status code, 0 otherwise",
+    ["endpoint", "network", "url"],
 )
 
 # ---------------------------------------------------------------------------
@@ -203,6 +227,75 @@ def scrape_network_stats(
         logger.exception("analysis_hourly scrape failed for network=%s", network)
 
 
+def load_endpoints(path: str) -> list[str]:
+    """Load endpoint paths from a YAML file.
+
+    Returns an empty list if the file does not exist or cannot be parsed.
+    """
+    if not os.path.exists(path):
+        logger.info("endpoints file not found at %s, skipping endpoint monitoring", path)
+        return []
+    try:
+        with open(path, "r") as fh:
+            data = yaml.safe_load(fh)
+        endpoints = data.get("endpoints", []) if isinstance(data, dict) else []
+        return [str(e) for e in endpoints if e]
+    except Exception:
+        logger.exception("failed to load endpoints file %s", path)
+        return []
+
+
+def scrape_api_endpoints(
+    base_url: str, endpoints: list[str], networks: list[str], timeout: float
+) -> None:
+    """Probe each configured endpoint and record HTTP status code, duration, and up/down.
+
+    Rules:
+    - ``/health_check`` is special: no ``net=`` parameter is appended; probed once
+      with an empty network label.
+    - All other endpoints: ``net=<network>`` is appended for every configured
+      network (one probe per network).  If the path already contains a ``?`` the
+      parameter is appended with ``&``, otherwise with ``?``.
+    """
+    for path in endpoints:
+        path_part = path.split("?")[0] if "?" in path else path
+        # Strip query string to derive the endpoint label (path only)
+        endpoint_label = path_part
+
+        if path == "/health_check":
+            # Special case: probe once, no network
+            full_url = f"{base_url}/health_check"
+            _probe_endpoint(endpoint_label, "", full_url, timeout)
+        else:
+            separator = "&" if "?" in path else "?"
+            for net in networks:
+                full_url = f"{base_url}{path}{separator}net={net}"
+                _probe_endpoint(endpoint_label, net, full_url, timeout)
+
+
+def _probe_endpoint(endpoint: str, network: str, url: str, timeout: float) -> None:
+    """Make a single HTTP GET request and update the API availability metrics."""
+    start = time.monotonic()
+    try:
+        resp = requests.get(url, timeout=timeout)
+        elapsed = time.monotonic() - start
+        status_code = resp.status_code
+        up = 1 if 200 <= status_code < 300 else 0
+        logger.debug(
+            "endpoint=%s network=%s status=%d duration=%.3fs",
+            endpoint, network, status_code, elapsed,
+        )
+    except Exception:
+        elapsed = time.monotonic() - start
+        status_code = 0
+        up = 0
+        logger.exception("endpoint probe failed: endpoint=%s network=%s url=%s", endpoint, network, url)
+
+    API_HTTP_STATUS_CODE.labels(endpoint=endpoint, network=network, url=url).set(status_code)
+    API_HTTP_DURATION_SECONDS.labels(endpoint=endpoint, network=network, url=url).set(elapsed)
+    API_UP.labels(endpoint=endpoint, network=network, url=url).set(up)
+
+
 # ---------------------------------------------------------------------------
 # Main
 # ---------------------------------------------------------------------------
@@ -259,6 +352,12 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         choices=["DEBUG", "INFO", "WARNING", "ERROR"],
         help="Logging level (default: INFO)",
     )
+    p.add_argument(
+        "--endpoints-file",
+        default="endpoints.yaml",
+        help="Path to the endpoints YAML config file (default: endpoints.yaml). "
+             "If the file does not exist, endpoint monitoring is skipped.",
+    )
     return p.parse_args(argv)
 
 
@@ -292,9 +391,10 @@ def main() -> None:
 
     health_url, base_url = _normalise_urls(args.target_url)
     networks = _parse_networks(args.networks)
+    endpoints = load_endpoints(args.endpoints_file)
 
     BUILD_INFO.info({
-        "version": "0.2.0",
+        "version": "0.3.0",
         "target_url": args.target_url,
         "networks": ",".join(networks),
     })
@@ -326,6 +426,9 @@ def main() -> None:
 
         for net in networks:
             scrape_network_stats(base_url, net, args.request_timeout)
+
+        if endpoints:
+            scrape_api_endpoints(base_url, endpoints, networks, args.request_timeout)
 
         # Sleep in small increments so we can react to signals quickly
         deadline = time.monotonic() + args.scrape_interval

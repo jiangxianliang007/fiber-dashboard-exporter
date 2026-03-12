@@ -35,6 +35,18 @@ The `task` label takes one of:
 
 The `network` label is `mainnet` or `testnet`.
 
+### API endpoint availability
+
+| Metric | Type | Labels | Description |
+|---|---|---|---|
+| `fiber_dashboard_api_http_status_code` | Gauge | `endpoint`, `network`, `url` | HTTP status code (200, 404, 500, etc.). `0` means connection failure. |
+| `fiber_dashboard_api_http_duration_seconds` | Gauge | `endpoint`, `network`, `url` | Response time in seconds |
+| `fiber_dashboard_api_up` | Gauge | `endpoint`, `network`, `url` | `1` if status code is 2xx, `0` otherwise |
+
+- `endpoint` label = the path portion from `endpoints.yaml` (e.g. `/channels_hourly`, `/group_channel_by_state`)
+- `network` label = `mainnet` or `testnet` (empty string `""` for `/health_check`)
+- `url` label = the full URL that was probed
+
 ### Meta
 
 | Metric | Type | Description |
@@ -109,6 +121,7 @@ usage: exporter.py [-h] --target-url TARGET_URL
                    [--request-timeout REQUEST_TIMEOUT]
                    [--stale-threshold STALE_THRESHOLD]
                    [--log-level {DEBUG,INFO,WARNING,ERROR}]
+                   [--endpoints-file ENDPOINTS_FILE]
 
 options:
   --target-url          Base URL of the Fiber Dashboard backend (required)
@@ -120,7 +133,40 @@ options:
   --request-timeout     HTTP request timeout in seconds (default: 5)
   --stale-threshold     Seconds after which a heartbeat is marked stale (default: 120)
   --log-level           Logging level (default: INFO)
+  --endpoints-file      Path to the endpoints YAML config file (default: endpoints.yaml).
+                        If the file does not exist, endpoint monitoring is skipped.
 ```
+
+## Endpoint Monitoring (`endpoints.yaml`)
+
+Create an `endpoints.yaml` file to configure which API endpoints are monitored.
+The file lists endpoint **paths** (with optional query parameters, but **without** the `net=` parameter).
+
+```yaml
+endpoints:
+  - /health_check
+  - /analysis_hourly
+  - /channels_hourly?page=0&page_size=500
+  - /group_channel_by_state?state=closed_cooperative&state=closed_uncooperative&state=closed_waiting_onchain_settlement&state=open&page=0&page_size=10&sort_by=last_commit_time&order=desc&asset_name=ckb
+```
+
+**How it works:**
+
+- The base URL comes from `--target-url` (e.g. `http://localhost:8080`).
+- `/health_check` is special: probed **once** with no `net=` parameter and an empty `network` label.
+- All other endpoints: the exporter automatically appends `&net=mainnet` and `&net=testnet`
+  (or `?net=` if the path has no existing `?`), creating **two probes per endpoint**.
+- If `endpoints.yaml` does not exist, endpoint monitoring is silently skipped.
+
+**Example probed URLs:**
+
+| Config entry | Probed URLs |
+|---|---|
+| `/health_check` | `http://localhost:8080/health_check` |
+| `/analysis_hourly` | `http://localhost:8080/analysis_hourly?net=mainnet` |
+| | `http://localhost:8080/analysis_hourly?net=testnet` |
+| `/channels_hourly?page=0&page_size=500` | `http://localhost:8080/channels_hourly?page=0&page_size=500&net=mainnet` |
+| | `http://localhost:8080/channels_hourly?page=0&page_size=500&net=testnet` |
 
 ## Prometheus Configuration
 

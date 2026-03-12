@@ -1,0 +1,9 @@
+endpoints:
+  - /health_check
+  - /analysis_hourly
+  - /all_region
+  - /nodes_hourly?page=0&page_size=10
+  - /channels_hourly?page=0&page_size=500
+  - /channel_capacity_distribution
+  - /channel_count_by_state
+  - /group_channel_by_state?state=closed_cooperative&state=closed_uncooperative&state=closed_waiting_onchain_settlement&state=open&page=0&page_size=10&sort_by=last_commit_time&order=desc&asset_name=ckb
