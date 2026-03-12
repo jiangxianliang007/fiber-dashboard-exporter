@@ -19,6 +19,7 @@ import signal
 import sys
 import time
 import urllib3
+from typing import Callable
 from urllib.parse import urlparse, parse_qs
 
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
@@ -188,7 +189,13 @@ def _hex_to_int(value) -> int:
 
 
 def _to_float(value) -> float:
-    """Safely convert a value to float; return 0.0 on failure."""
+    """Safely convert a value to float; return 0.0 on failure.
+
+    Hex strings (``0x...``) are handled for forward-compatibility since some
+    Fiber Dashboard API fields (e.g. total_nodes, channel_len) are returned
+    as hex-encoded integers and future numeric fields may follow the same
+    convention.
+    """
     try:
         if isinstance(value, str) and (value.startswith("0x") or value.startswith("0X")):
             return float(int(value, 16))
@@ -423,7 +430,7 @@ def _scrape_group_channel_by_state(url: str, network: str, timeout: float) -> No
 
 
 # Map endpoint name → raw scrape function (without wrapper)
-_ENDPOINT_SCRAPERS: dict[str, object] = {
+_ENDPOINT_SCRAPERS: dict[str, Callable[[str, str, float], None]] = {
     "all_region": _scrape_all_region,
     "nodes_hourly": _scrape_nodes_hourly,
     "channels_hourly": _scrape_channels_hourly,
