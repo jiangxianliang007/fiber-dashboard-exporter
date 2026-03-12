@@ -54,3 +54,21 @@ groups:
         annotations:
           summary: "Significant node count drop on {{ $labels.network }}"
           description: "Node count on {{ $labels.network }} dropped by {{ $value }} in the last hour."
+
+      - alert: FiberDashboardApiEndpointDown
+        expr: fiber_dashboard_api_up == 0
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: "API endpoint {{ $labels.endpoint }} is down ({{ $labels.network }})"
+          description: "The API endpoint {{ $labels.endpoint }} for {{ $labels.network }} has been returning non-2xx status for over 2 minutes. URL: {{ $labels.url }}"
+
+      - alert: FiberDashboardApiEndpointSlow
+        expr: fiber_dashboard_api_http_duration_seconds > 5
+        for: 2m
+        labels:
+          severity: warning
+        annotations:
+          summary: "API endpoint {{ $labels.endpoint }} is slow ({{ $labels.network }})"
+          description: "The API endpoint {{ $labels.endpoint }} for {{ $labels.network }} has response time > 5s for over 2 minutes."
