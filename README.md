@@ -72,44 +72,23 @@ python exporter.py --target-url http://localhost:8080 --networks testnet
 
 Metrics are now available at `http://localhost:9101/metrics`.
 
-### Run with Docker
+### Run with Docker Compose
 
 ```bash
-docker build -t fiber-dashboard-exporter .
+# 1. Copy the example env file and edit it
+cp .env.example .env
 
-docker run -d \
-  --name fiber-dashboard-exporter \
-  -p 9101:9101 \
-  fiber-dashboard-exporter \
-  --target-url http://host.docker.internal:8080
+# 2. Edit .env — at minimum set TARGET_URL to your Fiber Dashboard backend URL
+#    e.g. TARGET_URL=http://your-fiber-dashboard-host:8080
+
+# 3. Start the exporter
+docker compose up -d
+
+# 4. Check logs
+docker compose logs -f
 ```
 
-### Run alongside Fiber Dashboard (Docker Compose)
-
-Add the exporter service to the existing Fiber Dashboard `compose.yaml`:
-
-```yaml
-services:
-  # ... existing timescaledb and fiber-dashbord services ...
-
-  fiber-dashboard-exporter:
-    build:
-      context: ./fiber-dashboard-exporter
-      dockerfile: Dockerfile
-    container_name: fiber-dashboard-exporter
-    ports:
-      - "9101:9101"
-    command:
-      - "--target-url=http://fiber-dashbord-backend:8080"
-      - "--networks=mainnet,testnet"
-      - "--scrape-interval=15"
-      - "--stale-threshold=120"
-    networks:
-      - fiber-network
-    depends_on:
-      - fiber-dashbord
-    restart: always
-```
+Metrics are available at `http://localhost:9101/metrics` (or the port you configured in `.env`).
 
 ## CLI Options
 

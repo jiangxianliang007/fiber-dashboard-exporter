@@ -1,0 +1,20 @@
+services:
+  fiber-dashboard-exporter:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: fiber-dashboard-exporter
+    ports:
+      - "${LISTEN_PORT:-9101}:${LISTEN_PORT:-9101}"
+    env_file:
+      - .env
+    command:
+      - "--target-url=${TARGET_URL:-http://localhost:8080}"
+      - "--networks=${NETWORKS:-mainnet,testnet}"
+      - "--listen-port=${LISTEN_PORT:-9101}"
+      - "--scrape-interval=${SCRAPE_INTERVAL:-15}"
+      - "--request-timeout=${REQUEST_TIMEOUT:-5}"
+      - "--stale-threshold=${STALE_THRESHOLD:-120}"
+      - "--log-level=${LOG_LEVEL:-INFO}"
+      - "--endpoints-file=${ENDPOINTS_FILE:-endpoints.yaml}"
+    restart: always
