@@ -6,53 +6,6 @@ Polls the `/health_check` and `/analysis_hourly` endpoints and exposes
 heartbeat timestamps, total node counts, and total channel counts as
 Prometheus metrics — with **mainnet / testnet** breakdown.
 
-## Metrics
-
-### Health check (heartbeat liveness)
-
-| Metric | Type | Labels | Description |
-|---|---|---|---|
-| `fiber_dashboard_heartbeat_timestamp_seconds` | Gauge | `task` | Unix timestamp of the last heartbeat |
-| `fiber_dashboard_heartbeat_age_seconds` | Gauge | `task` | Seconds elapsed since the last heartbeat |
-| `fiber_dashboard_heartbeat_healthy` | Gauge | `task` | `1` if fresh, `0` if stale |
-| `fiber_dashboard_scrape_success` | Gauge | — | `1` if the last /health_check scrape succeeded |
-| `fiber_dashboard_scrape_duration_seconds` | Gauge | — | Duration of the last /health_check scrape |
-
-The `task` label takes one of:
-
-- `timed_commit_states_heartbeat` — fetches node/channel graphs from Fiber RPC (every 30 min)
-- `daily_commit_task_heartbeat` — daily statistics aggregation (daily at 00:11 UTC)
-- `hourly_fresh_task_heartbeat` — refreshes materialized views (every 5 min)
-- `channel_monitor_heartbeat` — monitors on-chain channel states
-
-### Network statistics (nodes & channels)
-
-| Metric | Type | Labels | Description |
-|---|---|---|---|
-| `fiber_dashboard_total_nodes` | Gauge | `network` | Total active nodes |
-| `fiber_dashboard_total_channels` | Gauge | `network` | Total active channels |
-| `fiber_dashboard_network_scrape_success` | Gauge | `network` | `1` if the last /analysis_hourly scrape succeeded |
-
-The `network` label is `mainnet` or `testnet`.
-
-### API endpoint availability
-
-| Metric | Type | Labels | Description |
-|---|---|---|---|
-| `fiber_dashboard_api_http_status_code` | Gauge | `endpoint`, `network`, `url` | HTTP status code (200, 404, 500, etc.). `0` means connection failure. |
-| `fiber_dashboard_api_http_duration_seconds` | Gauge | `endpoint`, `network`, `url` | Response time in seconds |
-| `fiber_dashboard_api_up` | Gauge | `endpoint`, `network`, `url` | `1` if status code is 2xx, `0` otherwise |
-
-- `endpoint` label = the path portion from `endpoints.yaml` (e.g. `/channels_hourly`, `/group_channel_by_state`)
-- `network` label = `mainnet` or `testnet` (empty string `""` for `/health_check`)
-- `url` label = the full URL that was probed
-
-### Meta
-
-| Metric | Type | Description |
-|---|---|---|
-| `fiber_dashboard_exporter_info` | Info | Build metadata (version, target URL, networks) |
-
 ## Quick Start
 
 ### Run directly
@@ -90,31 +43,65 @@ docker compose logs -f
 
 Metrics are available at `http://localhost:9101/metrics` (or the port you configured in `.env`).
 
+## Metrics
+
+### Health check (heartbeat liveness)
+
+| Metric | Type | Labels | Description |
+|---|---|---|---|
+| `fiber_dashboard_heartbeat_timestamp_seconds` | Gauge | `task` | Unix timestamp of the last heartbeat |
+| `fiber_dashboard_heartbeat_age_seconds` | Gauge | `task` | Seconds elapsed since the last heartbeat |
+| `fiber_dashboard_heartbeat_healthy` | Gauge | `task` | `1` if fresh, `0` if stale |
+| `fiber_dashboard_scrape_success` | Gauge | — | `1` if the last /health_check scrape succeeded |
+| `fiber_dashboard_scrape_duration_seconds` | Gauge | — | Duration of the last /health_check scrape |
+
+The `task` label takes one of:
+
+- `timed_commit_states_heartbeat` — node/channel graph sync
+- `daily_commit_task_heartbeat` — daily statistics aggregation
+- `hourly_fresh_task_heartbeat` — materialized view refresh
+- `channel_monitor_heartbeat` — on-chain channel state monitor
+
+### Network statistics (nodes & channels)
+
+| Metric | Type | Labels | Description |
+|---|---|---|---|
+| `fiber_dashboard_total_nodes` | Gauge | `network` | Total active nodes |
+| `fiber_dashboard_total_channels` | Gauge | `network` | Total active channels |
+| `fiber_dashboard_network_scrape_success` | Gauge | `network` | `1` if the last /analysis_hourly scrape succeeded |
+
+The `network` label is `mainnet` or `testnet`.
+
+### API endpoint availability
+
+| Metric | Type | Labels | Description |
+|---|---|---|---|
+| `fiber_dashboard_api_http_status_code` | Gauge | `endpoint`, `network`, `url` | HTTP status code (200, 404, 500, etc.). `0` means connection failure. |
+| `fiber_dashboard_api_http_duration_seconds` | Gauge | `endpoint`, `network`, `url` | Response time in seconds |
+| `fiber_dashboard_api_up` | Gauge | `endpoint`, `network`, `url` | `1` if status code is 2xx, `0` otherwise |
+
+- `endpoint` label = the path portion from `endpoints.yaml` (e.g. `/channels_hourly`, `/group_channel_by_state`)
+- `network` label = `mainnet` or `testnet` (empty string `""` for `/health_check`)
+- `url` label = the full URL that was probed
+
+### Meta
+
+| Metric | Type | Description |
+|---|---|---|
+| `fiber_dashboard_exporter_info` | Info | Build metadata (version, target URL, networks) |
+
 ## CLI Options
 
-```
-usage: exporter.py [-h] --target-url TARGET_URL
-                   [--networks NETWORKS]
-                   [--listen-port LISTEN_PORT]
-                   [--scrape-interval SCRAPE_INTERVAL]
-                   [--request-timeout REQUEST_TIMEOUT]
-                   [--stale-threshold STALE_THRESHOLD]
-                   [--log-level {DEBUG,INFO,WARNING,ERROR}]
-                   [--endpoints-file ENDPOINTS_FILE]
-
-options:
-  --target-url          Base URL of the Fiber Dashboard backend (required)
-                        e.g. http://localhost:8080
-                        (also accepts http://localhost:8080/health_check)
-  --networks            Comma-separated networks to monitor (default: mainnet,testnet)
-  --listen-port         Port for the Prometheus metrics server (default: 9101)
-  --scrape-interval     Seconds between scrapes (default: 15)
-  --request-timeout     HTTP request timeout in seconds (default: 5)
-  --stale-threshold     Seconds after which a heartbeat is marked stale (default: 120)
-  --log-level           Logging level (default: INFO)
-  --endpoints-file      Path to the endpoints YAML config file (default: endpoints.yaml).
-                        If the file does not exist, endpoint monitoring is skipped.
-```
+| Flag | Default | Description |
+|---|---|---|
+| `--target-url` | (required) | Base URL of the Fiber Dashboard backend |
+| `--networks` | `mainnet,testnet` | Comma-separated networks to monitor |
+| `--listen-port` | `9101` | Prometheus metrics server port |
+| `--scrape-interval` | `15` | Seconds between scrapes |
+| `--request-timeout` | `5` | HTTP request timeout in seconds |
+| `--stale-threshold` | `120` | Seconds before a heartbeat is marked stale |
+| `--log-level` | `INFO` | Logging level (`DEBUG`, `INFO`, `WARNING`, `ERROR`) |
+| `--endpoints-file` | `endpoints.yaml` | Endpoints YAML config file path |
 
 ## Endpoint Monitoring (`endpoints.yaml`)
 
@@ -137,17 +124,7 @@ endpoints:
   (or `?net=` if the path has no existing `?`), creating **two probes per endpoint**.
 - If `endpoints.yaml` does not exist, endpoint monitoring is silently skipped.
 
-**Example probed URLs:**
-
-| Config entry | Probed URLs |
-|---|---|
-| `/health_check` | `http://localhost:8080/health_check` |
-| `/analysis_hourly` | `http://localhost:8080/analysis_hourly?net=mainnet` |
-| | `http://localhost:8080/analysis_hourly?net=testnet` |
-| `/channels_hourly?page=0&page_size=500` | `http://localhost:8080/channels_hourly?page=0&page_size=500&net=mainnet` |
-| | `http://localhost:8080/channels_hourly?page=0&page_size=500&net=testnet` |
-
-## Prometheus Configuration
+## Prometheus & Alerting
 
 Add a scrape job to your `prometheus.yml`:
 
@@ -161,89 +138,9 @@ scrape_configs:
           env: prod
 ```
 
-## Alert Rules
+See [`alerts.yml`](alerts.yml) for example Prometheus alerting rules.
 
-An example alerting rules file is provided in [`alerts.yml`](alerts.yml):
-
-```yaml
-groups:
-  - name: fiber_dashboard
-    rules:
-      - alert: FiberDashboardScrapeDown
-        expr: fiber_dashboard_scrape_success == 0
-        for: 2m
-        labels:
-          severity: critical
-
-      - alert: FiberDashboardTaskStale
-        expr: fiber_dashboard_heartbeat_healthy == 0
-        for: 5m
-        labels:
-          severity: warning
-
-      - alert: FiberDashboardNoNodes
-        expr: fiber_dashboard_total_nodes == 0
-        for: 10m
-        labels:
-          severity: critical
-        annotations:
-          summary: "No active nodes on {{ $labels.network }}"
-
-      - alert: FiberDashboardNoChannels
-        expr: fiber_dashboard_total_channels == 0
-        for: 10m
-        labels:
-          severity: critical
-        annotations:
-          summary: "No active channels on {{ $labels.network }}"
-```
-
-## Example /metrics Output
-
-```
-# HELP fiber_dashboard_heartbeat_timestamp_seconds Unix timestamp of the last heartbeat
-# TYPE fiber_dashboard_heartbeat_timestamp_seconds gauge
-fiber_dashboard_heartbeat_timestamp_seconds{task="timed_commit_states_heartbeat"} 1.738857600e+09
-fiber_dashboard_heartbeat_timestamp_seconds{task="daily_commit_task_heartbeat"} 1.738857600e+09
-fiber_dashboard_heartbeat_timestamp_seconds{task="hourly_fresh_task_heartbeat"} 1.738857600e+09
-fiber_dashboard_heartbeat_timestamp_seconds{task="channel_monitor_heartbeat"} 1.738857540e+09
-
-# HELP fiber_dashboard_total_nodes Total number of active nodes
-# TYPE fiber_dashboard_total_nodes gauge
-fiber_dashboard_total_nodes{network="mainnet"} 42.0
-fiber_dashboard_total_nodes{network="testnet"} 15.0
-
-# HELP fiber_dashboard_total_channels Total number of active channels
-# TYPE fiber_dashboard_total_channels gauge
-fiber_dashboard_total_channels{network="mainnet"} 128.0
-fiber_dashboard_total_channels{network="testnet"} 37.0
-```
-
-## How It Works
-
-```
-                         GET /health_check
-┌──────────────┐    GET /analysis_hourly?net=mainnet    ┌──────────────────┐
-│              │    GET /analysis_hourly?net=testnet     │                  │
-│   Exporter   │ ────────────────────────────────────>  │  Fiber Dashboard │
-│  :9101       │ <────────────────────────────────────  │  Backend :8080   │
-│              │         JSON responses                  │                  │
-└──────────────┘                                        └──────────────────┘
-       │
-       │  GET /metrics
-       v
-┌──────────────┐
-│  Prometheus  │
-└──────────────┘
-       │
-       v
-┌──────────────┐
-│   Grafana    │
-│  (optional)  │
-└──────────────┘
-```
-
-## Import Grafana
+## Grafana
 
 ![grafana dashboard](img/grafana1.png)
 
