@@ -1226,6 +1226,15 @@
       ],
       "transformations": [
         {
+          "id": "organize",
+          "options": {
+            "excludeByName": {
+              "__name__": true,
+              "Time": true
+            }
+          }
+        },
+        {
           "id": "merge",
           "options": {}
         },
@@ -1233,11 +1242,9 @@
           "id": "organize",
           "options": {
             "excludeByName": {
-              "__name__": true,
               "job": true,
               "instance": true,
-              "env": true,
-              "Time": true
+              "env": true
             },
             "renameByName": {
               "endpoint": "Endpoint",
