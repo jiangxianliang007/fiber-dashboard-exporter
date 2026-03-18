@@ -624,7 +624,7 @@ def main() -> None:
     endpoints = load_endpoints(args.endpoints_file)
 
     BUILD_INFO.info({
-        "version": "0.4.0",
+        "version": "0.5.0",
         "target_url": args.target_url,
         "networks": ",".join(networks),
     })
