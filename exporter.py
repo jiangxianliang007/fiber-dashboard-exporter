@@ -118,13 +118,13 @@ AVG_CHANNEL_CAPACITY = Gauge(
 CHANNEL_COUNT_BY_STATE = Gauge(
     "fiber_dashboard_channel_count_by_state",
     "Number of channels in each state",
-    ["network", "state"],
+    ["network", "asset", "state"],
 )
 
 CHANNEL_CAPACITY_DISTRIBUTION = Gauge(
     "fiber_dashboard_channel_capacity_distribution",
     "Number of channels in each capacity range",
-    ["network", "range"],
+    ["network", "asset", "range"],
 )
 
 # ---------------------------------------------------------------------------
@@ -422,12 +422,12 @@ def _scrape_channel_count_by_state(base_url: str, network: str, timeout: float) 
                 if isinstance(states, dict):
                     for state, count in states.items():
                         CHANNEL_COUNT_BY_STATE.labels(
-                            network=network, state=str(state)
+                            network=network, asset=str(asset), state=str(state)
                         ).set(_to_float(count))
         else:
-            # Flat format: {"open": 100, ...}
+            # Flat format: {"open": 100, ...} — asset unknown
             for state, count in data.items():
-                CHANNEL_COUNT_BY_STATE.labels(network=network, state=str(state)).set(
+                CHANNEL_COUNT_BY_STATE.labels(network=network, asset="unknown", state=str(state)).set(
                     _to_float(count)
                 )
     elif isinstance(data, list):
@@ -436,7 +436,7 @@ def _scrape_channel_count_by_state(base_url: str, network: str, timeout: float) 
             if isinstance(item, dict):
                 state = str(item.get("state", "unknown"))
                 count = _to_float(item.get("count", 0))
-                CHANNEL_COUNT_BY_STATE.labels(network=network, state=state).set(count)
+                CHANNEL_COUNT_BY_STATE.labels(network=network, asset="unknown", state=state).set(count)
             else:
                 logger.warning(
                     "channel_count_by_state: unexpected item type %s in list for network=%s",
@@ -475,7 +475,7 @@ def _scrape_channel_capacity_distribution(
             if isinstance(item, dict):
                 rng = str(item.get("range", "unknown"))
                 count = _to_float(item.get("count", 0))
-                CHANNEL_CAPACITY_DISTRIBUTION.labels(network=network, range=rng).set(count)
+                CHANNEL_CAPACITY_DISTRIBUTION.labels(network=network, asset="unknown", range=rng).set(count)
             else:
                 logger.warning(
                     "channel_capacity_distribution: unexpected item type %s in list for network=%s",
@@ -490,14 +490,14 @@ def _scrape_channel_capacity_distribution(
                 if isinstance(distribution, dict):
                     for range_label, count in distribution.items():
                         CHANNEL_CAPACITY_DISTRIBUTION.labels(
-                            network=network, range=str(range_label)
+                            network=network, asset=str(asset_name), range=str(range_label)
                         ).set(_to_float(count))
         else:
             # Flat dict fallback: {"range_name": count, ...}
             for rng, count in data.items():
                 if not isinstance(count, dict):
                     CHANNEL_CAPACITY_DISTRIBUTION.labels(
-                        network=network, range=str(rng)
+                        network=network, asset="unknown", range=str(rng)
                     ).set(_to_float(count))
     else:
         logger.warning(
