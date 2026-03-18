@@ -32,7 +32,7 @@ except ImportError:
 
 import requests
 import yaml
-from prometheus_client import Counter, Gauge, Info, start_http_server
+from prometheus_client import Gauge, Info, start_http_server
 
 logger = logging.getLogger("fiber_dashboard_exporter")
 
@@ -96,19 +96,19 @@ NETWORK_SCRAPE_SUCCESS = Gauge(
 
 TOTAL_CAPACITY = Gauge(
     "fiber_dashboard_total_capacity",
-    "Total capacity of the Fiber Network",
+    "Total capacity of the Fiber Network (in CKB)",
     ["network"],
 )
 
 TOTAL_LIQUIDITY = Gauge(
     "fiber_dashboard_total_liquidity",
-    "Total liquidity of the Fiber Network",
+    "Total liquidity of the Fiber Network (in CKB)",
     ["network"],
 )
 
 AVG_CHANNEL_CAPACITY = Gauge(
     "fiber_dashboard_avg_channel_capacity",
-    "Average channel capacity (total_capacity / total_channels)",
+    "Average channel capacity in CKB (total_capacity / total_channels)",
     ["network"],
 )
 
@@ -147,29 +147,8 @@ CHANNELS_TOTAL_FROM_PAGE = Gauge(
 )
 
 # ---------------------------------------------------------------------------
-# Metrics — per-endpoint deep scrape status
+# Metrics — global exporter health
 # ---------------------------------------------------------------------------
-
-ENDPOINT_SCRAPE_SUCCESS = Gauge(
-    "fiber_dashboard_endpoint_scrape_success",
-    "Whether the last deep scrape of an endpoint succeeded (1) or failed (0)",
-    ["network", "endpoint"],
-)
-
-ENDPOINT_SCRAPE_DURATION = Gauge(
-    "fiber_dashboard_endpoint_scrape_duration_seconds",
-    "Duration of the last deep scrape of an endpoint in seconds",
-    ["network", "endpoint"],
-)
-
-# ---------------------------------------------------------------------------
-# Metrics — global error counter and exporter health
-# ---------------------------------------------------------------------------
-
-SCRAPE_ERRORS_TOTAL = Counter(
-    "fiber_dashboard_scrape_errors_total",
-    "Cumulative number of scrape errors across all endpoints",
-)
 
 EXPORTER_UP = Gauge(
     "fiber_dashboard_exporter_up",
@@ -216,6 +195,9 @@ TASK_NAMES = [
 ]
 
 VALID_NETWORKS = ("mainnet", "testnet")
+
+# 1 CKB = 10^8 Shannon
+CKB_SHANNON_RATIO = 1e8
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -324,35 +306,36 @@ def scrape_network_stats(
         TOTAL_NODES.labels(network=network).set(total_nodes)
         TOTAL_CHANNELS.labels(network=network).set(total_channels)
 
-        # total_capacity = sum of capacity_analysis[*].total (hex strings)
+        # total_capacity = sum of capacity_analysis[*].total (hex strings), converted to CKB
         total_capacity = 0.0
         for item in data.get("capacity_analysis", []):
             if isinstance(item, dict):
                 total_capacity += _to_float(_hex_to_int(item.get("total", 0)))
-        TOTAL_CAPACITY.labels(network=network).set(total_capacity)
+        total_capacity_ckb = total_capacity / CKB_SHANNON_RATIO
+        TOTAL_CAPACITY.labels(network=network).set(total_capacity_ckb)
 
-        # total_liquidity = sum of asset_analysis[*].total (hex strings)
+        # total_liquidity = sum of asset_analysis[*].total (hex strings), converted to CKB
         total_liquidity = 0.0
         for item in data.get("asset_analysis", []):
             if isinstance(item, dict):
                 total_liquidity += _to_float(_hex_to_int(item.get("total", 0)))
-        TOTAL_LIQUIDITY.labels(network=network).set(total_liquidity)
+        total_liquidity_ckb = total_liquidity / CKB_SHANNON_RATIO
+        TOTAL_LIQUIDITY.labels(network=network).set(total_liquidity_ckb)
 
         if total_channels > 0:
             AVG_CHANNEL_CAPACITY.labels(network=network).set(
-                total_capacity / total_channels
+                total_capacity_ckb / total_channels
             )
 
         NETWORK_SCRAPE_SUCCESS.labels(network=network).set(1)
 
         logger.debug(
-            "network=%s  nodes=%d  channels=%d  capacity=%.0f  liquidity=%.0f",
-            network, total_nodes, total_channels, total_capacity, total_liquidity
+            "network=%s  nodes=%d  channels=%d  capacity=%.4f CKB  liquidity=%.4f CKB",
+            network, total_nodes, total_channels, total_capacity_ckb, total_liquidity_ckb
         )
 
     except Exception:
         NETWORK_SCRAPE_SUCCESS.labels(network=network).set(0)
-        SCRAPE_ERRORS_TOTAL.inc()
         logger.exception("analysis_hourly scrape failed for network=%s", network)
 
 
@@ -425,31 +408,6 @@ def _probe_endpoint(endpoint: str, network: str, url: str, timeout: float) -> No
     API_UP.labels(endpoint=endpoint, network=network, url=url).set(up)
 
 
-def _scrape_endpoint_wrapper(
-    endpoint_label: str, network: str, func, *args, **kwargs
-) -> bool:
-    """Call *func* and record ENDPOINT_SCRAPE_SUCCESS / ENDPOINT_SCRAPE_DURATION.
-
-    Returns True on success, False on failure.
-    """
-    start = time.monotonic()
-    try:
-        func(*args, **kwargs)
-        elapsed = time.monotonic() - start
-        ENDPOINT_SCRAPE_SUCCESS.labels(network=network, endpoint=endpoint_label).set(1)
-        ENDPOINT_SCRAPE_DURATION.labels(network=network, endpoint=endpoint_label).set(elapsed)
-        return True
-    except Exception:
-        elapsed = time.monotonic() - start
-        ENDPOINT_SCRAPE_SUCCESS.labels(network=network, endpoint=endpoint_label).set(0)
-        ENDPOINT_SCRAPE_DURATION.labels(network=network, endpoint=endpoint_label).set(elapsed)
-        SCRAPE_ERRORS_TOTAL.inc()
-        logger.exception(
-            "deep scrape failed: endpoint=%s network=%s", endpoint_label, network
-        )
-        return False
-
-
 def _scrape_all_region(base_url: str, network: str, timeout: float) -> None:
     """Fetch /all_region?net=<network> and set REGION_NODES gauges."""
     url = f"{base_url}/all_region?net={network}"
@@ -489,8 +447,11 @@ def _scrape_all_region(base_url: str, network: str, timeout: float) -> None:
 
 
 def scrape_all_region(base_url: str, network: str, timeout: float) -> None:
-    """Wrapped version of _scrape_all_region with success/duration tracking."""
-    _scrape_endpoint_wrapper("/all_region", network, _scrape_all_region, base_url, network, timeout)
+    """Fetch /all_region and update REGION_NODES gauges."""
+    try:
+        _scrape_all_region(base_url, network, timeout)
+    except Exception:
+        logger.exception("deep scrape failed: endpoint=/all_region network=%s", network)
 
 
 def _scrape_channel_count_by_state(base_url: str, network: str, timeout: float) -> None:
@@ -537,15 +498,11 @@ def _scrape_channel_count_by_state(base_url: str, network: str, timeout: float) 
 
 
 def scrape_channel_count_by_state(base_url: str, network: str, timeout: float) -> None:
-    """Wrapped version of _scrape_channel_count_by_state with success/duration tracking."""
-    _scrape_endpoint_wrapper(
-        "/channel_count_by_state",
-        network,
-        _scrape_channel_count_by_state,
-        base_url,
-        network,
-        timeout,
-    )
+    """Fetch /channel_count_by_state and update CHANNEL_COUNT_BY_STATE gauges."""
+    try:
+        _scrape_channel_count_by_state(base_url, network, timeout)
+    except Exception:
+        logger.exception("deep scrape failed: endpoint=/channel_count_by_state network=%s", network)
 
 
 def _scrape_channel_capacity_distribution(
@@ -598,15 +555,11 @@ def _scrape_channel_capacity_distribution(
 def scrape_channel_capacity_distribution(
     base_url: str, network: str, timeout: float
 ) -> None:
-    """Wrapped version of _scrape_channel_capacity_distribution with success/duration tracking."""
-    _scrape_endpoint_wrapper(
-        "/channel_capacity_distribution",
-        network,
-        _scrape_channel_capacity_distribution,
-        base_url,
-        network,
-        timeout,
-    )
+    """Fetch /channel_capacity_distribution and update CHANNEL_CAPACITY_DISTRIBUTION gauges."""
+    try:
+        _scrape_channel_capacity_distribution(base_url, network, timeout)
+    except Exception:
+        logger.exception("deep scrape failed: endpoint=/channel_capacity_distribution network=%s", network)
 
 
 def _scrape_nodes_hourly(base_url: str, network: str, timeout: float) -> None:
@@ -625,10 +578,11 @@ def _scrape_nodes_hourly(base_url: str, network: str, timeout: float) -> None:
 
 
 def scrape_nodes_hourly(base_url: str, network: str, timeout: float) -> None:
-    """Wrapped version of _scrape_nodes_hourly with success/duration tracking."""
-    _scrape_endpoint_wrapper(
-        "/nodes_hourly", network, _scrape_nodes_hourly, base_url, network, timeout
-    )
+    """Fetch /nodes_hourly and update NODES_TOTAL_FROM_PAGE gauge."""
+    try:
+        _scrape_nodes_hourly(base_url, network, timeout)
+    except Exception:
+        logger.exception("deep scrape failed: endpoint=/nodes_hourly network=%s", network)
 
 
 def _scrape_channels_hourly(base_url: str, network: str, timeout: float) -> None:
@@ -647,10 +601,11 @@ def _scrape_channels_hourly(base_url: str, network: str, timeout: float) -> None
 
 
 def scrape_channels_hourly(base_url: str, network: str, timeout: float) -> None:
-    """Wrapped version of _scrape_channels_hourly with success/duration tracking."""
-    _scrape_endpoint_wrapper(
-        "/channels_hourly", network, _scrape_channels_hourly, base_url, network, timeout
-    )
+    """Fetch /channels_hourly and update CHANNELS_TOTAL_FROM_PAGE gauge."""
+    try:
+        _scrape_channels_hourly(base_url, network, timeout)
+    except Exception:
+        logger.exception("deep scrape failed: endpoint=/channels_hourly network=%s", network)
 
 
 # ---------------------------------------------------------------------------
