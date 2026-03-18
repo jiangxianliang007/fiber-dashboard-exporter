@@ -324,9 +324,18 @@ def scrape_network_stats(
         TOTAL_NODES.labels(network=network).set(total_nodes)
         TOTAL_CHANNELS.labels(network=network).set(total_channels)
 
-        total_capacity = _to_float(data.get("total_capacity", 0))
-        total_liquidity = _to_float(data.get("total_liquidity", 0))
+        # total_capacity = sum of capacity_analysis[*].total (hex strings)
+        total_capacity = 0.0
+        for item in data.get("capacity_analysis", []):
+            if isinstance(item, dict):
+                total_capacity += _to_float(_hex_to_int(item.get("total", 0)))
         TOTAL_CAPACITY.labels(network=network).set(total_capacity)
+
+        # total_liquidity = sum of asset_analysis[*].total (hex strings)
+        total_liquidity = 0.0
+        for item in data.get("asset_analysis", []):
+            if isinstance(item, dict):
+                total_liquidity += _to_float(_hex_to_int(item.get("total", 0)))
         TOTAL_LIQUIDITY.labels(network=network).set(total_liquidity)
 
         if total_channels > 0:
@@ -490,12 +499,24 @@ def _scrape_channel_count_by_state(base_url: str, network: str, timeout: float) 
     resp = requests.get(url, timeout=timeout)
     resp.raise_for_status()
     data = resp.json()
-    # Expected: {"open": 100, "closed_cooperative": 5, ...}
+    # Actual API returns nested: {"ckb": {"open": 23, "closed_cooperative": 1, ...}, ...}
+    # Flat fallback: {"open": 100, "closed_cooperative": 5, ...}
     if isinstance(data, dict):
-        for state, count in data.items():
-            CHANNEL_COUNT_BY_STATE.labels(network=network, state=str(state)).set(
-                _to_float(count)
-            )
+        first_asset_data = next(iter(data.values()), None) if data else None
+        if isinstance(first_asset_data, dict):
+            # Nested format: outer key = asset, inner key = state, inner value = count
+            for asset, states in data.items():
+                if isinstance(states, dict):
+                    for state, count in states.items():
+                        CHANNEL_COUNT_BY_STATE.labels(
+                            network=network, state=str(state)
+                        ).set(_to_float(count))
+        else:
+            # Flat format: {"open": 100, ...}
+            for state, count in data.items():
+                CHANNEL_COUNT_BY_STATE.labels(network=network, state=str(state)).set(
+                    _to_float(count)
+                )
     elif isinstance(data, list):
         # Tolerate list-of-dicts format: [{"state": "open", "count": 100}, ...]
         for item in data:
@@ -535,7 +556,9 @@ def _scrape_channel_capacity_distribution(
     resp = requests.get(url, timeout=timeout)
     resp.raise_for_status()
     data = resp.json()
-    # Expected: [{"range": "0-1", "count": 50}, ...]
+    # Actual API returns three-level nested:
+    # {"capacity": {"ckb": {"Capacity 10^0k": 26, ...}}, "asset": {...}}
+    # Flat dict fallback: {"range_name": count, ...}
     if isinstance(data, list):
         for item in data:
             if isinstance(item, dict):
@@ -549,10 +572,22 @@ def _scrape_channel_capacity_distribution(
                     network,
                 )
     elif isinstance(data, dict):
-        for rng, count in data.items():
-            CHANNEL_CAPACITY_DISTRIBUTION.labels(network=network, range=str(rng)).set(
-                _to_float(count)
-            )
+        capacity_data = data.get("capacity", {})
+        if isinstance(capacity_data, dict) and capacity_data:
+            # Three-level nested: data["capacity"][asset][range_label] = count
+            for asset_name, distribution in capacity_data.items():
+                if isinstance(distribution, dict):
+                    for range_label, count in distribution.items():
+                        CHANNEL_CAPACITY_DISTRIBUTION.labels(
+                            network=network, range=str(range_label)
+                        ).set(_to_float(count))
+        else:
+            # Flat dict fallback: {"range_name": count, ...}
+            for rng, count in data.items():
+                if not isinstance(count, dict):
+                    CHANNEL_CAPACITY_DISTRIBUTION.labels(
+                        network=network, range=str(rng)
+                    ).set(_to_float(count))
     else:
         logger.warning(
             "channel_capacity_distribution: unexpected data format for network=%s",
@@ -580,13 +615,13 @@ def _scrape_nodes_hourly(base_url: str, network: str, timeout: float) -> None:
     resp = requests.get(url, timeout=timeout)
     resp.raise_for_status()
     data = resp.json()
-    # Expected: {"total": 123, "data": [...], ...} or {"data": {"total": 123, ...}}
+    # Actual API returns: {"total_count": 22, "nodes": [...], "next_page": 1}
+    # Try "total_count" first, fall back to "total" for compatibility
     if not isinstance(data, dict):
         logger.warning("nodes_hourly: unexpected data format for network=%s", network)
         return
-    nested = data.get("data")
-    total = data.get("total") if not isinstance(nested, dict) else (data.get("total") or nested.get("total", 0))
-    NODES_TOTAL_FROM_PAGE.labels(network=network).set(_to_float(total))
+    total = _to_float(data.get("total_count", data.get("total", 0)))
+    NODES_TOTAL_FROM_PAGE.labels(network=network).set(total)
 
 
 def scrape_nodes_hourly(base_url: str, network: str, timeout: float) -> None:
@@ -602,13 +637,13 @@ def _scrape_channels_hourly(base_url: str, network: str, timeout: float) -> None
     resp = requests.get(url, timeout=timeout)
     resp.raise_for_status()
     data = resp.json()
-    # Expected: {"total": 456, "data": [...], ...} or {"data": {"total": 456, ...}}
+    # Actual API returns: {"total_count": 26, "channels": [...], "next_page": 1}
+    # Try "total_count" first, fall back to "total" for compatibility
     if not isinstance(data, dict):
         logger.warning("channels_hourly: unexpected data format for network=%s", network)
         return
-    nested = data.get("data")
-    total = data.get("total") if not isinstance(nested, dict) else (data.get("total") or nested.get("total", 0))
-    CHANNELS_TOTAL_FROM_PAGE.labels(network=network).set(_to_float(total))
+    total = _to_float(data.get("total_count", data.get("total", 0)))
+    CHANNELS_TOTAL_FROM_PAGE.labels(network=network).set(total)
 
 
 def scrape_channels_hourly(base_url: str, network: str, timeout: float) -> None:
