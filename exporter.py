@@ -35,6 +35,15 @@ from prometheus_client import Gauge, Info, start_http_server
 
 logger = logging.getLogger("fiber_dashboard_exporter")
 
+# Known channel state names returned by /channel_count_by_state.
+# Used to detect when the flat-format response contains an asset name instead.
+_KNOWN_CHANNEL_STATES: frozenset[str] = frozenset({
+    "open",
+    "closed_cooperative",
+    "closed_uncooperative",
+    "closed_waiting_onchain_settlement",
+})
+
 # ---------------------------------------------------------------------------
 # Metrics — health_check
 # ---------------------------------------------------------------------------
@@ -437,6 +446,15 @@ def _process_channel_count_by_state(data, network: str, gauge) -> None:
                     ).set(_to_float(count))
             else:
                 # Flat: key = state, value = count
+                if str(key) not in _KNOWN_CHANNEL_STATES:
+                    logger.warning(
+                        "channel_count_by_state: key=%s with scalar value=%s looks like an "
+                        "asset name, not a state name. The API may be returning "
+                        "/channel_count_by_asset data instead. network=%s",
+                        key,
+                        value,
+                        network,
+                    )
                 gauge.labels(
                     network=network, asset="unknown", state=str(key)
                 ).set(_to_float(value))
@@ -465,9 +483,11 @@ def _process_channel_count_by_state(data, network: str, gauge) -> None:
 def _scrape_channel_count_by_state(base_url: str, network: str, timeout: float) -> None:
     """Fetch /channel_count_by_state?net=<network> and set CHANNEL_COUNT_BY_STATE gauges."""
     url = f"{base_url}/channel_count_by_state?net={network}"
+    logger.info("channel_count_by_state: requesting url=%s", url)
     resp = requests.get(url, timeout=timeout)
     resp.raise_for_status()
     data = resp.json()
+    logger.info("channel_count_by_state: network=%s raw_response=%s", network, data)
     _process_channel_count_by_state(data, network, CHANNEL_COUNT_BY_STATE)
 
 

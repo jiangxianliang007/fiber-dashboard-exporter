@@ -196,6 +196,20 @@ class TestProcessChannelCountByState:
         assert any('asset="unknown",network="mainnet",state="total"} 24.0' in l for l in lines)
         assert len(lines) == 3
 
+    def test_flat_format_asset_like_key_emits_warning(self, caplog):
+        """When flat format contains a key that looks like an asset name (e.g. 'ckb'), a
+        warning is emitted to alert that the wrong API endpoint may have been called."""
+        import logging
+        data = {"ckb": 26}
+        with caplog.at_level(logging.WARNING, logger="fiber_dashboard_exporter"):
+            _process_channel_count_by_state(data, "mainnet", self.gauge)
+
+        warning_messages = [r.message for r in caplog.records if r.levelno == logging.WARNING]
+        assert any(
+            "asset name" in msg and "ckb" in msg and "mainnet" in msg
+            for msg in warning_messages
+        ), f"Expected warning mentioning 'asset name', 'ckb', and 'mainnet', got: {warning_messages}"
+
     def test_list_of_dicts_format(self):
         """List-of-dicts format is handled correctly."""
         data = [
