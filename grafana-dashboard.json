@@ -1645,7 +1645,7 @@
             "type": "prometheus",
             "uid": "${DS_PROMETHEUS}"
           },
-          "expr": "fiber_dashboard_channel_count_by_state{env=\"$env\", instance=~\"$instance\", network=~\"$network\"}",
+          "expr": "sort_desc(fiber_dashboard_channel_count_by_state{env=\"$env\", instance=~\"$instance\", network=~\"$network\"} > 0)",
           "legendFormat": "{{asset}} - {{state}} ({{network}})",
           "refId": "A"
         }
@@ -1660,7 +1660,9 @@
         },
         "orientation": "horizontal",
         "displayMode": "gradient",
-        "valueMode": "color"
+        "valueMode": "color",
+        "minVizHeight": 10,
+        "minVizWidth": 0
       },
       "fieldConfig": {
         "defaults": {
@@ -1692,7 +1694,7 @@
             "type": "prometheus",
             "uid": "${DS_PROMETHEUS}"
           },
-          "expr": "fiber_dashboard_channel_capacity_distribution{env=\"$env\", instance=~\"$instance\", network=~\"$network\"}",
+          "expr": "sort_desc(fiber_dashboard_channel_capacity_distribution{env=\"$env\", instance=~\"$instance\", network=~\"$network\"} > 0)",
           "legendFormat": "{{asset}} - {{range}} ({{network}})",
           "refId": "A"
         }
@@ -1707,7 +1709,9 @@
         },
         "orientation": "horizontal",
         "displayMode": "gradient",
-        "valueMode": "color"
+        "valueMode": "color",
+        "minVizHeight": 10,
+        "minVizWidth": 0
       },
       "fieldConfig": {
         "defaults": {
