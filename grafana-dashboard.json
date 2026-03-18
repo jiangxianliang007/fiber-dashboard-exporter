@@ -1646,7 +1646,7 @@
             "uid": "${DS_PROMETHEUS}"
           },
           "expr": "fiber_dashboard_channel_count_by_state{env=\"$env\", instance=~\"$instance\", network=~\"$network\"}",
-          "legendFormat": "{{state}} ({{network}})",
+          "legendFormat": "{{asset}} - {{state}} ({{network}})",
           "refId": "A"
         }
       ],
@@ -1693,7 +1693,7 @@
             "uid": "${DS_PROMETHEUS}"
           },
           "expr": "fiber_dashboard_channel_capacity_distribution{env=\"$env\", instance=~\"$instance\", network=~\"$network\"}",
-          "legendFormat": "{{range}} ({{network}})",
+          "legendFormat": "{{asset}} - {{range}} ({{network}})",
           "refId": "A"
         }
       ],
