@@ -446,12 +446,25 @@ def _scrape_all_region(base_url: str, network: str, timeout: float) -> None:
     resp = requests.get(url, timeout=timeout)
     resp.raise_for_status()
     data = resp.json()
-    # Expected: [{"region": "US", "count": 10}, ...]
-    if isinstance(data, list):
+    if isinstance(data, dict):
+        # API returns {"US": 10, "CN": 5, ...}
+        for region, count in data.items():
+            REGION_NODES.labels(network=network, region=str(region)).set(
+                _to_float(count)
+            )
+    elif isinstance(data, list):
+        # Tolerate list-of-dicts: [{"region": "US", "count": 10}, ...]
         for item in data:
-            region = str(item.get("region", "unknown"))
-            count = _to_float(item.get("count", 0))
-            REGION_NODES.labels(network=network, region=region).set(count)
+            if isinstance(item, dict):
+                region = str(item.get("region", "unknown"))
+                count = _to_float(item.get("count", 0))
+                REGION_NODES.labels(network=network, region=region).set(count)
+            else:
+                logger.warning(
+                    "all_region: unexpected item type %s in list for network=%s",
+                    type(item).__name__,
+                    network,
+                )
     else:
         logger.warning("all_region: unexpected data format for network=%s", network)
 
@@ -476,9 +489,16 @@ def _scrape_channel_count_by_state(base_url: str, network: str, timeout: float) 
     elif isinstance(data, list):
         # Tolerate list-of-dicts format: [{"state": "open", "count": 100}, ...]
         for item in data:
-            state = str(item.get("state", "unknown"))
-            count = _to_float(item.get("count", 0))
-            CHANNEL_COUNT_BY_STATE.labels(network=network, state=state).set(count)
+            if isinstance(item, dict):
+                state = str(item.get("state", "unknown"))
+                count = _to_float(item.get("count", 0))
+                CHANNEL_COUNT_BY_STATE.labels(network=network, state=state).set(count)
+            else:
+                logger.warning(
+                    "channel_count_by_state: unexpected item type %s in list for network=%s",
+                    type(item).__name__,
+                    network,
+                )
     else:
         logger.warning(
             "channel_count_by_state: unexpected data format for network=%s", network
@@ -508,9 +528,16 @@ def _scrape_channel_capacity_distribution(
     # Expected: [{"range": "0-1", "count": 50}, ...]
     if isinstance(data, list):
         for item in data:
-            rng = str(item.get("range", "unknown"))
-            count = _to_float(item.get("count", 0))
-            CHANNEL_CAPACITY_DISTRIBUTION.labels(network=network, range=rng).set(count)
+            if isinstance(item, dict):
+                rng = str(item.get("range", "unknown"))
+                count = _to_float(item.get("count", 0))
+                CHANNEL_CAPACITY_DISTRIBUTION.labels(network=network, range=rng).set(count)
+            else:
+                logger.warning(
+                    "channel_capacity_distribution: unexpected item type %s in list for network=%s",
+                    type(item).__name__,
+                    network,
+                )
     elif isinstance(data, dict):
         for rng, count in data.items():
             CHANNEL_CAPACITY_DISTRIBUTION.labels(network=network, range=str(rng)).set(
@@ -543,9 +570,13 @@ def _scrape_nodes_hourly(base_url: str, network: str, timeout: float) -> None:
     resp = requests.get(url, timeout=timeout)
     resp.raise_for_status()
     data = resp.json()
-    # Expected: {"total": 123, "data": [...], ...}
-    total = _to_float(data.get("total", 0))
-    NODES_TOTAL_FROM_PAGE.labels(network=network).set(total)
+    # Expected: {"total": 123, "data": [...], ...} or {"data": {"total": 123, ...}}
+    if not isinstance(data, dict):
+        logger.warning("nodes_hourly: unexpected data format for network=%s", network)
+        return
+    nested = data.get("data")
+    total = data.get("total") if not isinstance(nested, dict) else (data.get("total") or nested.get("total", 0))
+    NODES_TOTAL_FROM_PAGE.labels(network=network).set(_to_float(total))
 
 
 def scrape_nodes_hourly(base_url: str, network: str, timeout: float) -> None:
@@ -561,9 +592,13 @@ def _scrape_channels_hourly(base_url: str, network: str, timeout: float) -> None
     resp = requests.get(url, timeout=timeout)
     resp.raise_for_status()
     data = resp.json()
-    # Expected: {"total": 456, "data": [...], ...}
-    total = _to_float(data.get("total", 0))
-    CHANNELS_TOTAL_FROM_PAGE.labels(network=network).set(total)
+    # Expected: {"total": 456, "data": [...], ...} or {"data": {"total": 456, ...}}
+    if not isinstance(data, dict):
+        logger.warning("channels_hourly: unexpected data format for network=%s", network)
+        return
+    nested = data.get("data")
+    total = data.get("total") if not isinstance(nested, dict) else (data.get("total") or nested.get("total", 0))
+    CHANNELS_TOTAL_FROM_PAGE.labels(network=network).set(_to_float(total))
 
 
 def scrape_channels_hourly(base_url: str, network: str, timeout: float) -> None:
