@@ -12,7 +12,6 @@ and /channels_hourly to expose richer network telemetry.
 from __future__ import annotations
 
 import argparse
-import collections
 import logging
 import os
 import signal
@@ -116,12 +115,6 @@ AVG_CHANNEL_CAPACITY = Gauge(
 # Metrics — region / channel state / capacity distribution
 # ---------------------------------------------------------------------------
 
-REGION_NODES = Gauge(
-    "fiber_dashboard_region_nodes",
-    "Number of nodes in each geographic region",
-    ["network", "region"],
-)
-
 CHANNEL_COUNT_BY_STATE = Gauge(
     "fiber_dashboard_channel_count_by_state",
     "Number of channels in each state",
@@ -132,18 +125,6 @@ CHANNEL_CAPACITY_DISTRIBUTION = Gauge(
     "fiber_dashboard_channel_capacity_distribution",
     "Number of channels in each capacity range",
     ["network", "range"],
-)
-
-NODES_TOTAL_FROM_PAGE = Gauge(
-    "fiber_dashboard_nodes_total_from_page",
-    "Total number of nodes reported by the /nodes_hourly pagination metadata",
-    ["network"],
-)
-
-CHANNELS_TOTAL_FROM_PAGE = Gauge(
-    "fiber_dashboard_channels_total_from_page",
-    "Total number of channels reported by the /channels_hourly pagination metadata",
-    ["network"],
 )
 
 # ---------------------------------------------------------------------------
@@ -235,6 +216,21 @@ def _to_float(value, default: float = 0.0) -> float:
         return float(s)
     except (ValueError, TypeError):
         return default
+
+
+def _clear_gauge_for_network(gauge, network: str) -> None:
+    """Remove all label combinations for a given network from a Gauge.
+
+    This prevents stale labels from persisting when the API response
+    changes between scrapes (e.g., a state that disappears from one scrape
+    to the next would otherwise remain with its old value indefinitely).
+    """
+    to_remove = []
+    for label_values in list(gauge._metrics.keys()):
+        if len(label_values) > 0 and label_values[0] == network:
+            to_remove.append(label_values)
+    for lv in to_remove:
+        gauge.remove(*lv)
 
 
 def _derive_base_url(health_check_url: str) -> str:
@@ -408,58 +404,14 @@ def _probe_endpoint(endpoint: str, network: str, url: str, timeout: float) -> No
     API_UP.labels(endpoint=endpoint, network=network, url=url).set(up)
 
 
-def _scrape_all_region(base_url: str, network: str, timeout: float) -> None:
-    """Fetch /all_region?net=<network> and set REGION_NODES gauges."""
-    url = f"{base_url}/all_region?net={network}"
-    resp = requests.get(url, timeout=timeout)
-    resp.raise_for_status()
-    data = resp.json()
-    if isinstance(data, dict):
-        # API returns {"US": 10, "CN": 5, ...}
-        for region, count in data.items():
-            REGION_NODES.labels(network=network, region=str(region)).set(
-                _to_float(count)
-            )
-    elif isinstance(data, list):
-        if not data:
-            return
-        first = data[0]
-        if isinstance(first, dict):
-            # Format: [{"region": "US", "count": 10}, ...]
-            for item in data:
-                if isinstance(item, dict):
-                    region = str(item.get("region", "unknown"))
-                    count = _to_float(item.get("count", 0))
-                    REGION_NODES.labels(network=network, region=region).set(count)
-        elif isinstance(first, str):
-            # Format: ["US", "US", "CN", "DE", ...] — count occurrences
-            region_counts = collections.Counter(str(r) for r in data)
-            for region, count in region_counts.items():
-                REGION_NODES.labels(network=network, region=region).set(count)
-        else:
-            logger.warning(
-                "all_region: unexpected item type %s in list for network=%s",
-                type(first).__name__,
-                network,
-            )
-    else:
-        logger.warning("all_region: unexpected data format for network=%s", network)
-
-
-def scrape_all_region(base_url: str, network: str, timeout: float) -> None:
-    """Fetch /all_region and update REGION_NODES gauges."""
-    try:
-        _scrape_all_region(base_url, network, timeout)
-    except Exception:
-        logger.exception("deep scrape failed: endpoint=/all_region network=%s", network)
-
-
 def _scrape_channel_count_by_state(base_url: str, network: str, timeout: float) -> None:
     """Fetch /channel_count_by_state?net=<network> and set CHANNEL_COUNT_BY_STATE gauges."""
     url = f"{base_url}/channel_count_by_state?net={network}"
     resp = requests.get(url, timeout=timeout)
     resp.raise_for_status()
     data = resp.json()
+    # Clear stale labels for this network before setting new values
+    _clear_gauge_for_network(CHANNEL_COUNT_BY_STATE, network)
     # Actual API returns nested: {"ckb": {"open": 23, "closed_cooperative": 1, ...}, ...}
     # Flat fallback: {"open": 100, "closed_cooperative": 5, ...}
     if isinstance(data, dict):
@@ -513,6 +465,8 @@ def _scrape_channel_capacity_distribution(
     resp = requests.get(url, timeout=timeout)
     resp.raise_for_status()
     data = resp.json()
+    # Clear stale labels for this network before setting new values
+    _clear_gauge_for_network(CHANNEL_CAPACITY_DISTRIBUTION, network)
     # Actual API returns three-level nested:
     # {"capacity": {"ckb": {"Capacity 10^0k": 26, ...}}, "asset": {...}}
     # Flat dict fallback: {"range_name": count, ...}
@@ -560,52 +514,6 @@ def scrape_channel_capacity_distribution(
         _scrape_channel_capacity_distribution(base_url, network, timeout)
     except Exception:
         logger.exception("deep scrape failed: endpoint=/channel_capacity_distribution network=%s", network)
-
-
-def _scrape_nodes_hourly(base_url: str, network: str, timeout: float) -> None:
-    """Fetch /nodes_hourly pagination metadata and set NODES_TOTAL_FROM_PAGE."""
-    url = f"{base_url}/nodes_hourly?page=0&page_size=10&net={network}"
-    resp = requests.get(url, timeout=timeout)
-    resp.raise_for_status()
-    data = resp.json()
-    # Actual API returns: {"total_count": 22, "nodes": [...], "next_page": 1}
-    # Try "total_count" first, fall back to "total" for compatibility
-    if not isinstance(data, dict):
-        logger.warning("nodes_hourly: unexpected data format for network=%s", network)
-        return
-    total = _to_float(data.get("total_count", data.get("total", 0)))
-    NODES_TOTAL_FROM_PAGE.labels(network=network).set(total)
-
-
-def scrape_nodes_hourly(base_url: str, network: str, timeout: float) -> None:
-    """Fetch /nodes_hourly and update NODES_TOTAL_FROM_PAGE gauge."""
-    try:
-        _scrape_nodes_hourly(base_url, network, timeout)
-    except Exception:
-        logger.exception("deep scrape failed: endpoint=/nodes_hourly network=%s", network)
-
-
-def _scrape_channels_hourly(base_url: str, network: str, timeout: float) -> None:
-    """Fetch /channels_hourly pagination metadata and set CHANNELS_TOTAL_FROM_PAGE."""
-    url = f"{base_url}/channels_hourly?page=0&page_size=500&net={network}"
-    resp = requests.get(url, timeout=timeout)
-    resp.raise_for_status()
-    data = resp.json()
-    # Actual API returns: {"total_count": 26, "channels": [...], "next_page": 1}
-    # Try "total_count" first, fall back to "total" for compatibility
-    if not isinstance(data, dict):
-        logger.warning("channels_hourly: unexpected data format for network=%s", network)
-        return
-    total = _to_float(data.get("total_count", data.get("total", 0)))
-    CHANNELS_TOTAL_FROM_PAGE.labels(network=network).set(total)
-
-
-def scrape_channels_hourly(base_url: str, network: str, timeout: float) -> None:
-    """Fetch /channels_hourly and update CHANNELS_TOTAL_FROM_PAGE gauge."""
-    try:
-        _scrape_channels_hourly(base_url, network, timeout)
-    except Exception:
-        logger.exception("deep scrape failed: endpoint=/channels_hourly network=%s", network)
 
 
 # ---------------------------------------------------------------------------
@@ -740,11 +648,8 @@ def main() -> None:
 
         for net in networks:
             scrape_network_stats(base_url, net, args.request_timeout)
-            scrape_all_region(base_url, net, args.request_timeout)
             scrape_channel_count_by_state(base_url, net, args.request_timeout)
             scrape_channel_capacity_distribution(base_url, net, args.request_timeout)
-            scrape_nodes_hourly(base_url, net, args.request_timeout)
-            scrape_channels_hourly(base_url, net, args.request_timeout)
 
         if endpoints:
             scrape_api_endpoints(base_url, endpoints, networks, args.request_timeout)
