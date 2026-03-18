@@ -12,6 +12,7 @@ and /channels_hourly to expose richer network telemetry.
 from __future__ import annotations
 
 import argparse
+import collections
 import logging
 import os
 import signal
@@ -453,18 +454,27 @@ def _scrape_all_region(base_url: str, network: str, timeout: float) -> None:
                 _to_float(count)
             )
     elif isinstance(data, list):
-        # Tolerate list-of-dicts: [{"region": "US", "count": 10}, ...]
-        for item in data:
-            if isinstance(item, dict):
-                region = str(item.get("region", "unknown"))
-                count = _to_float(item.get("count", 0))
+        if not data:
+            return
+        first = data[0]
+        if isinstance(first, dict):
+            # Format: [{"region": "US", "count": 10}, ...]
+            for item in data:
+                if isinstance(item, dict):
+                    region = str(item.get("region", "unknown"))
+                    count = _to_float(item.get("count", 0))
+                    REGION_NODES.labels(network=network, region=region).set(count)
+        elif isinstance(first, str):
+            # Format: ["US", "US", "CN", "DE", ...] — count occurrences
+            region_counts = collections.Counter(str(r) for r in data)
+            for region, count in region_counts.items():
                 REGION_NODES.labels(network=network, region=region).set(count)
-            else:
-                logger.warning(
-                    "all_region: unexpected item type %s in list for network=%s",
-                    type(item).__name__,
-                    network,
-                )
+        else:
+            logger.warning(
+                "all_region: unexpected item type %s in list for network=%s",
+                type(first).__name__,
+                network,
+            )
     else:
         logger.warning("all_region: unexpected data format for network=%s", network)
 
