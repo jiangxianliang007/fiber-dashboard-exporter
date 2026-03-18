@@ -183,6 +183,19 @@ class TestProcessChannelCountByState:
         assert all('asset="unknown"' in l for l in lines)
         assert len(lines) == 2
 
+    def test_mixed_value_types_handled_per_item(self):
+        """Mixed dict: nested assets and scalar values are each handled correctly."""
+        data = {"ckb": {"open": 23, "closed_cooperative": 1}, "total": 24}
+        _process_channel_count_by_state(data, "mainnet", self.gauge)
+
+        lines = _channel_state_lines(self.registry)
+        # ckb nested entries
+        assert any('asset="ckb",network="mainnet",state="open"} 23.0' in l for l in lines)
+        assert any('asset="ckb",network="mainnet",state="closed_cooperative"} 1.0' in l for l in lines)
+        # scalar "total" key treated as state with asset="unknown"
+        assert any('asset="unknown",network="mainnet",state="total"} 24.0' in l for l in lines)
+        assert len(lines) == 3
+
     def test_list_of_dicts_format(self):
         """List-of-dicts format is handled correctly."""
         data = [
