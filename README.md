@@ -86,8 +86,8 @@ The `network` label is `mainnet` or `testnet`.
 
 | Metric | Type | Labels | Description |
 |---|---|---|---|
-| `fiber_dashboard_channel_count_by_state` | Gauge | `network`, `state` | Number of channels per state (open, closed_cooperative, etc.) |
-| `fiber_dashboard_channel_capacity_distribution` | Gauge | `network`, `range` | Number of channels in each capacity range |
+| `fiber_dashboard_channel_count_by_state` | Gauge | `network`, `asset`, `state` | Number of channels per asset and state (open, closed_cooperative, etc.) |
+| `fiber_dashboard_channel_capacity_distribution` | Gauge | `network`, `asset`, `range` | Number of channels in each capacity range per asset |
 
 ### Pagination totals
 
