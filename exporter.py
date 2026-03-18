@@ -511,6 +511,7 @@ def _scrape_channel_capacity_distribution(
     _clear_gauge_for_network(CHANNEL_CAPACITY_DISTRIBUTION, network)
     # Actual API returns three-level nested:
     # {"capacity": {"ckb": {"Capacity 10^0k": 26, ...}}, "asset": {...}}
+    # Only the "capacity" section is processed to avoid duplicate metrics.
     # Flat dict fallback: {"range_name": count, ...}
     if isinstance(data, list):
         for item in data:
@@ -528,8 +529,9 @@ def _scrape_channel_capacity_distribution(
                     network,
                 )
     elif isinstance(data, dict):
-        # Process both "capacity" and "asset" sections
-        for section_key in ("capacity", "asset"):
+        # Process only the "capacity" section to avoid duplicate metrics
+        # (the "asset" section contains the same underlying channel data).
+        for section_key in ("capacity",):
             section_data = data.get(section_key, {})
             if isinstance(section_data, dict):
                 # Three-level nested: data[section][asset_name][range_label] = count
