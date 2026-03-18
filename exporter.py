@@ -468,6 +468,7 @@ def _scrape_channel_count_by_state(base_url: str, network: str, timeout: float) 
     resp = requests.get(url, timeout=timeout)
     resp.raise_for_status()
     data = resp.json()
+    logger.debug("channel_count_by_state raw response for network=%s: %s", network, data)
     _process_channel_count_by_state(data, network, CHANNEL_COUNT_BY_STATE)
 
 
@@ -487,6 +488,7 @@ def _scrape_channel_capacity_distribution(
     resp = requests.get(url, timeout=timeout)
     resp.raise_for_status()
     data = resp.json()
+    logger.debug("channel_capacity_distribution raw response for network=%s: %s", network, data)
     # Clear stale labels for this network before setting new values
     _clear_gauge_for_network(CHANNEL_CAPACITY_DISTRIBUTION, network)
     # Actual API returns three-level nested:
