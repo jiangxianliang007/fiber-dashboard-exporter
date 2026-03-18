@@ -72,3 +72,39 @@ groups:
         annotations:
           summary: "API endpoint {{ $labels.endpoint }} is slow ({{ $labels.network }})"
           description: "The API endpoint {{ $labels.endpoint }} for {{ $labels.network }} has response time > 5s for over 2 minutes."
+
+      - alert: FiberDashboardEndpointScrapeDown
+        expr: fiber_dashboard_endpoint_scrape_success == 0
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Fiber Dashboard endpoint scrape failing"
+          description: "Endpoint {{ $labels.endpoint }} on network {{ $labels.network }} has been failing for 5 minutes."
+
+      - alert: FiberDashboardEndpointScrapeSlow
+        expr: fiber_dashboard_endpoint_scrape_duration_seconds > 10
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Fiber Dashboard endpoint scrape slow"
+          description: "Endpoint {{ $labels.endpoint }} on network {{ $labels.network }} is taking more than 10 seconds."
+
+      - alert: FiberDashboardCapacityDrop
+        expr: delta(fiber_dashboard_total_capacity[1h]) < -1000000
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Fiber Network capacity dropped significantly"
+          description: "Total capacity on {{ $labels.network }} dropped by more than 1M CKB in the last hour."
+
+      - alert: FiberDashboardScrapeErrorRateHigh
+        expr: rate(fiber_dashboard_scrape_errors_total[5m]) > 0.1
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "High scrape error rate"
+          description: "The exporter error rate is above 0.1 errors/sec for 10 minutes."

@@ -4,7 +4,9 @@ Prometheus exporter for Fiber Dashboard.
 
 Polls the Fiber Dashboard backend /health_check and /analysis_hourly APIs
 and exposes heartbeat timestamps, node counts, and channel counts as
-Prometheus metrics.
+Prometheus metrics.  Also performs deep JSON parsing of /all_region,
+/channel_count_by_state, /channel_capacity_distribution, /nodes_hourly,
+and /channels_hourly to expose richer network telemetry.
 """
 
 from __future__ import annotations
@@ -29,7 +31,7 @@ except ImportError:
 
 import requests
 import yaml
-from prometheus_client import Gauge, Info, start_http_server
+from prometheus_client import Counter, Gauge, Info, start_http_server
 
 logger = logging.getLogger("fiber_dashboard_exporter")
 
@@ -85,6 +87,92 @@ NETWORK_SCRAPE_SUCCESS = Gauge(
     "fiber_dashboard_network_scrape_success",
     "Whether the last scrape of /analysis_hourly succeeded (1) or failed (0)",
     ["network"],
+)
+
+# ---------------------------------------------------------------------------
+# Metrics — enhanced network stats (capacity / liquidity / avg capacity)
+# ---------------------------------------------------------------------------
+
+TOTAL_CAPACITY = Gauge(
+    "fiber_dashboard_total_capacity",
+    "Total capacity of the Fiber Network",
+    ["network"],
+)
+
+TOTAL_LIQUIDITY = Gauge(
+    "fiber_dashboard_total_liquidity",
+    "Total liquidity of the Fiber Network",
+    ["network"],
+)
+
+AVG_CHANNEL_CAPACITY = Gauge(
+    "fiber_dashboard_avg_channel_capacity",
+    "Average channel capacity (total_capacity / total_channels)",
+    ["network"],
+)
+
+# ---------------------------------------------------------------------------
+# Metrics — region / channel state / capacity distribution
+# ---------------------------------------------------------------------------
+
+REGION_NODES = Gauge(
+    "fiber_dashboard_region_nodes",
+    "Number of nodes in each geographic region",
+    ["network", "region"],
+)
+
+CHANNEL_COUNT_BY_STATE = Gauge(
+    "fiber_dashboard_channel_count_by_state",
+    "Number of channels in each state",
+    ["network", "state"],
+)
+
+CHANNEL_CAPACITY_DISTRIBUTION = Gauge(
+    "fiber_dashboard_channel_capacity_distribution",
+    "Number of channels in each capacity range",
+    ["network", "range"],
+)
+
+NODES_TOTAL_FROM_PAGE = Gauge(
+    "fiber_dashboard_nodes_total_from_page",
+    "Total number of nodes reported by the /nodes_hourly pagination metadata",
+    ["network"],
+)
+
+CHANNELS_TOTAL_FROM_PAGE = Gauge(
+    "fiber_dashboard_channels_total_from_page",
+    "Total number of channels reported by the /channels_hourly pagination metadata",
+    ["network"],
+)
+
+# ---------------------------------------------------------------------------
+# Metrics — per-endpoint deep scrape status
+# ---------------------------------------------------------------------------
+
+ENDPOINT_SCRAPE_SUCCESS = Gauge(
+    "fiber_dashboard_endpoint_scrape_success",
+    "Whether the last deep scrape of an endpoint succeeded (1) or failed (0)",
+    ["network", "endpoint"],
+)
+
+ENDPOINT_SCRAPE_DURATION = Gauge(
+    "fiber_dashboard_endpoint_scrape_duration_seconds",
+    "Duration of the last deep scrape of an endpoint in seconds",
+    ["network", "endpoint"],
+)
+
+# ---------------------------------------------------------------------------
+# Metrics — global error counter and exporter health
+# ---------------------------------------------------------------------------
+
+SCRAPE_ERRORS_TOTAL = Counter(
+    "fiber_dashboard_scrape_errors_total",
+    "Cumulative number of scrape errors across all endpoints",
+)
+
+EXPORTER_UP = Gauge(
+    "fiber_dashboard_exporter_up",
+    "Whether the exporter itself is healthy (1) or not (0)",
 )
 
 # ---------------------------------------------------------------------------
@@ -146,6 +234,24 @@ def _hex_to_int(value) -> int:
     if s.startswith("0x") or s.startswith("0X"):
         return int(s, 16)
     return int(s)
+
+
+def _to_float(value, default: float = 0.0) -> float:
+    """Convert a value to float, supporting hex strings (0x...).
+
+    Returns *default* when the value is ``None`` or cannot be converted.
+    """
+    if value is None:
+        return default
+    if isinstance(value, (int, float)):
+        return float(value)
+    s = str(value).strip()
+    if s.startswith("0x") or s.startswith("0X"):
+        return float(int(s, 16))
+    try:
+        return float(s)
+    except (ValueError, TypeError):
+        return default
 
 
 def _derive_base_url(health_check_url: str) -> str:
@@ -216,14 +322,27 @@ def scrape_network_stats(
 
         TOTAL_NODES.labels(network=network).set(total_nodes)
         TOTAL_CHANNELS.labels(network=network).set(total_channels)
+
+        total_capacity = _to_float(data.get("total_capacity", 0))
+        total_liquidity = _to_float(data.get("total_liquidity", 0))
+        TOTAL_CAPACITY.labels(network=network).set(total_capacity)
+        TOTAL_LIQUIDITY.labels(network=network).set(total_liquidity)
+
+        if total_channels > 0:
+            AVG_CHANNEL_CAPACITY.labels(network=network).set(
+                total_capacity / total_channels
+            )
+
         NETWORK_SCRAPE_SUCCESS.labels(network=network).set(1)
 
         logger.debug(
-            "network=%s  nodes=%d  channels=%d", network, total_nodes, total_channels
+            "network=%s  nodes=%d  channels=%d  capacity=%.0f  liquidity=%.0f",
+            network, total_nodes, total_channels, total_capacity, total_liquidity
         )
 
     except Exception:
         NETWORK_SCRAPE_SUCCESS.labels(network=network).set(0)
+        SCRAPE_ERRORS_TOTAL.inc()
         logger.exception("analysis_hourly scrape failed for network=%s", network)
 
 
@@ -294,6 +413,164 @@ def _probe_endpoint(endpoint: str, network: str, url: str, timeout: float) -> No
     API_HTTP_STATUS_CODE.labels(endpoint=endpoint, network=network, url=url).set(status_code)
     API_HTTP_DURATION_SECONDS.labels(endpoint=endpoint, network=network, url=url).set(elapsed)
     API_UP.labels(endpoint=endpoint, network=network, url=url).set(up)
+
+
+def _scrape_endpoint_wrapper(
+    endpoint_label: str, network: str, func, *args, **kwargs
+) -> bool:
+    """Call *func* and record ENDPOINT_SCRAPE_SUCCESS / ENDPOINT_SCRAPE_DURATION.
+
+    Returns True on success, False on failure.
+    """
+    start = time.monotonic()
+    try:
+        func(*args, **kwargs)
+        elapsed = time.monotonic() - start
+        ENDPOINT_SCRAPE_SUCCESS.labels(network=network, endpoint=endpoint_label).set(1)
+        ENDPOINT_SCRAPE_DURATION.labels(network=network, endpoint=endpoint_label).set(elapsed)
+        return True
+    except Exception:
+        elapsed = time.monotonic() - start
+        ENDPOINT_SCRAPE_SUCCESS.labels(network=network, endpoint=endpoint_label).set(0)
+        ENDPOINT_SCRAPE_DURATION.labels(network=network, endpoint=endpoint_label).set(elapsed)
+        SCRAPE_ERRORS_TOTAL.inc()
+        logger.exception(
+            "deep scrape failed: endpoint=%s network=%s", endpoint_label, network
+        )
+        return False
+
+
+def _scrape_all_region(base_url: str, network: str, timeout: float) -> None:
+    """Fetch /all_region?net=<network> and set REGION_NODES gauges."""
+    url = f"{base_url}/all_region?net={network}"
+    resp = requests.get(url, timeout=timeout)
+    resp.raise_for_status()
+    data = resp.json()
+    # Expected: [{"region": "US", "count": 10}, ...]
+    if isinstance(data, list):
+        for item in data:
+            region = str(item.get("region", "unknown"))
+            count = _to_float(item.get("count", 0))
+            REGION_NODES.labels(network=network, region=region).set(count)
+    else:
+        logger.warning("all_region: unexpected data format for network=%s", network)
+
+
+def scrape_all_region(base_url: str, network: str, timeout: float) -> None:
+    """Wrapped version of _scrape_all_region with success/duration tracking."""
+    _scrape_endpoint_wrapper("/all_region", network, _scrape_all_region, base_url, network, timeout)
+
+
+def _scrape_channel_count_by_state(base_url: str, network: str, timeout: float) -> None:
+    """Fetch /channel_count_by_state?net=<network> and set CHANNEL_COUNT_BY_STATE gauges."""
+    url = f"{base_url}/channel_count_by_state?net={network}"
+    resp = requests.get(url, timeout=timeout)
+    resp.raise_for_status()
+    data = resp.json()
+    # Expected: {"open": 100, "closed_cooperative": 5, ...}
+    if isinstance(data, dict):
+        for state, count in data.items():
+            CHANNEL_COUNT_BY_STATE.labels(network=network, state=str(state)).set(
+                _to_float(count)
+            )
+    elif isinstance(data, list):
+        # Tolerate list-of-dicts format: [{"state": "open", "count": 100}, ...]
+        for item in data:
+            state = str(item.get("state", "unknown"))
+            count = _to_float(item.get("count", 0))
+            CHANNEL_COUNT_BY_STATE.labels(network=network, state=state).set(count)
+    else:
+        logger.warning(
+            "channel_count_by_state: unexpected data format for network=%s", network
+        )
+
+
+def scrape_channel_count_by_state(base_url: str, network: str, timeout: float) -> None:
+    """Wrapped version of _scrape_channel_count_by_state with success/duration tracking."""
+    _scrape_endpoint_wrapper(
+        "/channel_count_by_state",
+        network,
+        _scrape_channel_count_by_state,
+        base_url,
+        network,
+        timeout,
+    )
+
+
+def _scrape_channel_capacity_distribution(
+    base_url: str, network: str, timeout: float
+) -> None:
+    """Fetch /channel_capacity_distribution?net=<network> and set CHANNEL_CAPACITY_DISTRIBUTION gauges."""
+    url = f"{base_url}/channel_capacity_distribution?net={network}"
+    resp = requests.get(url, timeout=timeout)
+    resp.raise_for_status()
+    data = resp.json()
+    # Expected: [{"range": "0-1", "count": 50}, ...]
+    if isinstance(data, list):
+        for item in data:
+            rng = str(item.get("range", "unknown"))
+            count = _to_float(item.get("count", 0))
+            CHANNEL_CAPACITY_DISTRIBUTION.labels(network=network, range=rng).set(count)
+    elif isinstance(data, dict):
+        for rng, count in data.items():
+            CHANNEL_CAPACITY_DISTRIBUTION.labels(network=network, range=str(rng)).set(
+                _to_float(count)
+            )
+    else:
+        logger.warning(
+            "channel_capacity_distribution: unexpected data format for network=%s",
+            network,
+        )
+
+
+def scrape_channel_capacity_distribution(
+    base_url: str, network: str, timeout: float
+) -> None:
+    """Wrapped version of _scrape_channel_capacity_distribution with success/duration tracking."""
+    _scrape_endpoint_wrapper(
+        "/channel_capacity_distribution",
+        network,
+        _scrape_channel_capacity_distribution,
+        base_url,
+        network,
+        timeout,
+    )
+
+
+def _scrape_nodes_hourly(base_url: str, network: str, timeout: float) -> None:
+    """Fetch /nodes_hourly pagination metadata and set NODES_TOTAL_FROM_PAGE."""
+    url = f"{base_url}/nodes_hourly?page=0&page_size=10&net={network}"
+    resp = requests.get(url, timeout=timeout)
+    resp.raise_for_status()
+    data = resp.json()
+    # Expected: {"total": 123, "data": [...], ...}
+    total = _to_float(data.get("total", 0))
+    NODES_TOTAL_FROM_PAGE.labels(network=network).set(total)
+
+
+def scrape_nodes_hourly(base_url: str, network: str, timeout: float) -> None:
+    """Wrapped version of _scrape_nodes_hourly with success/duration tracking."""
+    _scrape_endpoint_wrapper(
+        "/nodes_hourly", network, _scrape_nodes_hourly, base_url, network, timeout
+    )
+
+
+def _scrape_channels_hourly(base_url: str, network: str, timeout: float) -> None:
+    """Fetch /channels_hourly pagination metadata and set CHANNELS_TOTAL_FROM_PAGE."""
+    url = f"{base_url}/channels_hourly?page=0&page_size=500&net={network}"
+    resp = requests.get(url, timeout=timeout)
+    resp.raise_for_status()
+    data = resp.json()
+    # Expected: {"total": 456, "data": [...], ...}
+    total = _to_float(data.get("total", 0))
+    CHANNELS_TOTAL_FROM_PAGE.labels(network=network).set(total)
+
+
+def scrape_channels_hourly(base_url: str, network: str, timeout: float) -> None:
+    """Wrapped version of _scrape_channels_hourly with success/duration tracking."""
+    _scrape_endpoint_wrapper(
+        "/channels_hourly", network, _scrape_channels_hourly, base_url, network, timeout
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -394,10 +671,12 @@ def main() -> None:
     endpoints = load_endpoints(args.endpoints_file)
 
     BUILD_INFO.info({
-        "version": "0.3.0",
+        "version": "0.4.0",
         "target_url": args.target_url,
         "networks": ",".join(networks),
     })
+
+    EXPORTER_UP.set(1)
 
     # Graceful shutdown
     running = True
@@ -426,6 +705,11 @@ def main() -> None:
 
         for net in networks:
             scrape_network_stats(base_url, net, args.request_timeout)
+            scrape_all_region(base_url, net, args.request_timeout)
+            scrape_channel_count_by_state(base_url, net, args.request_timeout)
+            scrape_channel_capacity_distribution(base_url, net, args.request_timeout)
+            scrape_nodes_hourly(base_url, net, args.request_timeout)
+            scrape_channels_hourly(base_url, net, args.request_timeout)
 
         if endpoints:
             scrape_api_endpoints(base_url, endpoints, networks, args.request_timeout)
