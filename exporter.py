@@ -404,40 +404,45 @@ def _probe_endpoint(endpoint: str, network: str, url: str, timeout: float) -> No
     API_UP.labels(endpoint=endpoint, network=network, url=url).set(up)
 
 
-def _scrape_channel_count_by_state(base_url: str, network: str, timeout: float) -> None:
-    """Fetch /channel_count_by_state?net=<network> and set CHANNEL_COUNT_BY_STATE gauges."""
-    url = f"{base_url}/channel_count_by_state?net={network}"
-    resp = requests.get(url, timeout=timeout)
-    resp.raise_for_status()
-    data = resp.json()
-    # Clear stale labels for this network before setting new values
-    _clear_gauge_for_network(CHANNEL_COUNT_BY_STATE, network)
-    # Actual API returns nested: {"ckb": {"open": 23, "closed_cooperative": 1, ...}, ...}
+def _process_channel_count_by_state(data, network: str, gauge) -> None:
+    """Parse channel_count_by_state API response and update the given gauge.
+
+    Supports the nested format returned by both mainnet and testnet:
+        {"<asset>": {"<state>": <count>, ...}, ...}
+    e.g. {"ckb": {"open": 23, "closed_cooperative": 1, "closed_waiting_onchain_settlement": 2}}
+
+    Stale label combinations for the network are cleared before setting new
+    values so that assets or states that disappear between scrapes do not linger.
+    """
+    # Remove all existing label combinations for this network to prevent stale values
+    _clear_gauge_for_network(gauge, network)
+
+    # Actual API returns nested: {"ckb": {"open": 23, ...}, "USDI": {"open": 1}, ...}
     # Flat fallback: {"open": 100, "closed_cooperative": 5, ...}
     if isinstance(data, dict):
-        first_asset_data = next(iter(data.values()), None) if data else None
-        if isinstance(first_asset_data, dict):
+        first_val = next(iter(data.values()), None) if data else None
+        if isinstance(first_val, dict):
             # Nested format: outer key = asset, inner key = state, inner value = count
             for asset, states in data.items():
                 if isinstance(states, dict):
                     for state, count in states.items():
-                        CHANNEL_COUNT_BY_STATE.labels(
+                        gauge.labels(
                             network=network, asset=str(asset), state=str(state)
                         ).set(_to_float(count))
         else:
             # Flat format: {"open": 100, ...}
             for state, count in data.items():
-                CHANNEL_COUNT_BY_STATE.labels(
+                gauge.labels(
                     network=network, asset="unknown", state=str(state)
                 ).set(_to_float(count))
     elif isinstance(data, list):
-        # Tolerate list-of-dicts format: [{"state": "open", "count": 100}, ...]
+        # Tolerate list-of-dicts format: [{"asset": "ckb", "state": "open", "count": 100}, ...]
         for item in data:
             if isinstance(item, dict):
                 asset = str(item.get("asset", "unknown"))
                 state = str(item.get("state", "unknown"))
                 count = _to_float(item.get("count", 0))
-                CHANNEL_COUNT_BY_STATE.labels(
+                gauge.labels(
                     network=network, asset=asset, state=state
                 ).set(count)
             else:
@@ -450,6 +455,15 @@ def _scrape_channel_count_by_state(base_url: str, network: str, timeout: float) 
         logger.warning(
             "channel_count_by_state: unexpected data format for network=%s", network
         )
+
+
+def _scrape_channel_count_by_state(base_url: str, network: str, timeout: float) -> None:
+    """Fetch /channel_count_by_state?net=<network> and set CHANNEL_COUNT_BY_STATE gauges."""
+    url = f"{base_url}/channel_count_by_state?net={network}"
+    resp = requests.get(url, timeout=timeout)
+    resp.raise_for_status()
+    data = resp.json()
+    _process_channel_count_by_state(data, network, CHANNEL_COUNT_BY_STATE)
 
 
 def scrape_channel_count_by_state(base_url: str, network: str, timeout: float) -> None:
