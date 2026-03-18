@@ -468,6 +468,7 @@ def _scrape_channel_count_by_state(base_url: str, network: str, timeout: float) 
     resp = requests.get(url, timeout=timeout)
     resp.raise_for_status()
     data = resp.json()
+    logger.info("channel_count_by_state raw response for network=%s: %s", network, data)
     _process_channel_count_by_state(data, network, CHANNEL_COUNT_BY_STATE)
 
 
