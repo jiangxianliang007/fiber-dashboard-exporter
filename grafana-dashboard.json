@@ -1537,7 +1537,7 @@
       },
       "fieldConfig": {
         "defaults": {
-          "unit": "short",
+          "unit": "none",
           "color": {
             "mode": "palette-classic"
           }
@@ -1577,7 +1577,7 @@
       },
       "fieldConfig": {
         "defaults": {
-          "unit": "short",
+          "unit": "none",
           "color": {
             "mode": "palette-classic"
           }
@@ -1617,7 +1617,7 @@
       },
       "fieldConfig": {
         "defaults": {
-          "unit": "short",
+          "unit": "none",
           "color": {
             "mode": "palette-classic"
           }
@@ -1738,53 +1738,6 @@
       }
     },
     {
-      "id": 306,
-      "type": "bargauge",
-      "title": "Nodes by Region",
-      "datasource": {
-        "type": "prometheus",
-        "uid": "${DS_PROMETHEUS}"
-      },
-      "gridPos": {
-        "h": 8,
-        "w": 12,
-        "x": 0,
-        "y": 88
-      },
-      "targets": [
-        {
-          "datasource": {
-            "type": "prometheus",
-            "uid": "${DS_PROMETHEUS}"
-          },
-          "expr": "fiber_dashboard_region_nodes{env=\"$env\", instance=~\"$instance\", network=~\"$network\"}",
-          "legendFormat": "{{region}} ({{network}})",
-          "refId": "A"
-        }
-      ],
-      "options": {
-        "reduceOptions": {
-          "calcs": [
-            "lastNotNull"
-          ],
-          "fields": "",
-          "values": false
-        },
-        "orientation": "horizontal",
-        "displayMode": "gradient",
-        "valueMode": "color"
-      },
-      "fieldConfig": {
-        "defaults": {
-          "color": {
-            "mode": "palette-classic"
-          },
-          "unit": "short"
-        },
-        "overrides": []
-      }
-    },
-    {
       "id": 307,
       "type": "bargauge",
       "title": "Channels by State",
@@ -1874,103 +1827,6 @@
             "mode": "palette-classic"
           },
           "unit": "short"
-        },
-        "overrides": []
-      }
-    },
-    {
-      "id": 309,
-      "type": "table",
-      "title": "Endpoint Scrape Status",
-      "datasource": {
-        "type": "prometheus",
-        "uid": "${DS_PROMETHEUS}"
-      },
-      "gridPos": {
-        "h": 8,
-        "w": 12,
-        "x": 12,
-        "y": 96
-      },
-      "targets": [
-        {
-          "datasource": {
-            "type": "prometheus",
-            "uid": "${DS_PROMETHEUS}"
-          },
-          "expr": "fiber_dashboard_endpoint_scrape_success{env=\"$env\", instance=~\"$instance\", network=~\"$network\"}",
-          "legendFormat": "{{endpoint}} ({{network}})",
-          "refId": "A",
-          "instant": true
-        },
-        {
-          "datasource": {
-            "type": "prometheus",
-            "uid": "${DS_PROMETHEUS}"
-          },
-          "expr": "fiber_dashboard_endpoint_scrape_duration_seconds{env=\"$env\", instance=~\"$instance\", network=~\"$network\"}",
-          "legendFormat": "{{endpoint}} ({{network}})",
-          "refId": "B",
-          "instant": true
-        }
-      ],
-      "options": {
-        "sortBy": [
-          {
-            "displayName": "endpoint"
-          }
-        ]
-      },
-      "fieldConfig": {
-        "defaults": {
-          "unit": "short"
-        },
-        "overrides": []
-      },
-      "transformations": [
-        {
-          "id": "merge",
-          "options": {}
-        }
-      ]
-    },
-    {
-      "id": 310,
-      "type": "timeseries",
-      "title": "Scrape Errors Total",
-      "datasource": {
-        "type": "prometheus",
-        "uid": "${DS_PROMETHEUS}"
-      },
-      "gridPos": {
-        "h": 8,
-        "w": 24,
-        "x": 0,
-        "y": 104
-      },
-      "targets": [
-        {
-          "datasource": {
-            "type": "prometheus",
-            "uid": "${DS_PROMETHEUS}"
-          },
-          "expr": "rate(fiber_dashboard_scrape_errors_total{env=\"$env\", instance=~\"$instance\"}[5m])",
-          "legendFormat": "error rate (per sec)",
-          "refId": "A"
-        }
-      ],
-      "options": {
-        "tooltip": {
-          "mode": "multi"
-        }
-      },
-      "fieldConfig": {
-        "defaults": {
-          "unit": "short",
-          "color": {
-            "mode": "fixed",
-            "fixedColor": "red"
-          }
         },
         "overrides": []
       }
