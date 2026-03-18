@@ -407,9 +407,16 @@ def _probe_endpoint(endpoint: str, network: str, url: str, timeout: float) -> No
 def _process_channel_count_by_state(data, network: str, gauge) -> None:
     """Parse channel_count_by_state API response and update the given gauge.
 
-    Supports the nested format returned by both mainnet and testnet:
-        {"<asset>": {"<state>": <count>, ...}, ...}
-    e.g. {"ckb": {"open": 23, "closed_cooperative": 1, "closed_waiting_onchain_settlement": 2}}
+    Handles each key-value pair individually:
+    - If the value is a dict, treat the key as an asset name and the inner
+      dict as {state: count} pairs (nested format).
+    - If the value is a scalar, treat the key as a state name with
+      asset="unknown" (flat fallback per-item).
+
+    This supports pure nested, pure flat, and mixed formats, e.g.:
+        {"ckb": {"open": 23, "closed_cooperative": 1}}   # nested
+        {"open": 100, "closed_cooperative": 5}            # flat
+        {"ckb": {"open": 23}, "total": 24}                # mixed
 
     Stale label combinations for the network are cleared before setting new
     values so that assets or states that disappear between scrapes do not linger.
@@ -419,22 +426,20 @@ def _process_channel_count_by_state(data, network: str, gauge) -> None:
 
     # Actual API returns nested: {"ckb": {"open": 23, ...}, "USDI": {"open": 1}, ...}
     # Flat fallback: {"open": 100, "closed_cooperative": 5, ...}
+    # Mixed (future-proof): {"ckb": {"open": 23}, "total": 24}
     if isinstance(data, dict):
-        first_val = next(iter(data.values()), None) if data else None
-        if isinstance(first_val, dict):
-            # Nested format: outer key = asset, inner key = state, inner value = count
-            for asset, states in data.items():
-                if isinstance(states, dict):
-                    for state, count in states.items():
-                        gauge.labels(
-                            network=network, asset=str(asset), state=str(state)
-                        ).set(_to_float(count))
-        else:
-            # Flat format: {"open": 100, ...}
-            for state, count in data.items():
+        for key, value in data.items():
+            if isinstance(value, dict):
+                # Nested: key = asset, value = {state: count, ...}
+                for state, count in value.items():
+                    gauge.labels(
+                        network=network, asset=str(key), state=str(state)
+                    ).set(_to_float(count))
+            else:
+                # Flat: key = state, value = count
                 gauge.labels(
-                    network=network, asset="unknown", state=str(state)
-                ).set(_to_float(count))
+                    network=network, asset="unknown", state=str(key)
+                ).set(_to_float(value))
     elif isinstance(data, list):
         # Tolerate list-of-dicts format: [{"asset": "ckb", "state": "open", "count": 100}, ...]
         for item in data:
