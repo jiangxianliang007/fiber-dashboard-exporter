@@ -73,24 +73,6 @@ groups:
           summary: "[{{ $labels.env }}] API endpoint {{ $labels.endpoint }} is slow ({{ $labels.network }})"
           description: "[{{ $labels.env }}] The API endpoint {{ $labels.endpoint }} for {{ $labels.network }} has response time > 5s for over 5 minutes."
 
-      - alert: FiberDashboardEndpointScrapeDown
-        expr: fiber_dashboard_endpoint_scrape_success == 0
-        for: 5m
-        labels:
-          severity: warning
-        annotations:
-          summary: "[{{ $labels.env }}] Fiber Dashboard endpoint scrape failing ({{ $labels.network }})"
-          description: "[{{ $labels.env }}] Endpoint {{ $labels.endpoint }} on network {{ $labels.network }} has been failing for 5 minutes."
-
-      - alert: FiberDashboardEndpointScrapeSlow
-        expr: fiber_dashboard_endpoint_scrape_duration_seconds > 10
-        for: 5m
-        labels:
-          severity: warning
-        annotations:
-          summary: "[{{ $labels.env }}] Fiber Dashboard endpoint scrape slow ({{ $labels.network }})"
-          description: "[{{ $labels.env }}] Endpoint {{ $labels.endpoint }} on network {{ $labels.network }} is taking more than 10 seconds."
-
       - alert: FiberDashboardCapacityDrop
         expr: delta(fiber_dashboard_total_capacity[1h]) < -1000000
         for: 5m
