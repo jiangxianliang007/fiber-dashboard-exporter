@@ -3,12 +3,12 @@ groups:
     rules:
       - alert: FiberDashboardScrapeDown
         expr: fiber_dashboard_scrape_success == 0
-        for: 2m
+        for: 5m
         labels:
-          severity: critical
+          severity: warning
         annotations:
-          summary: "Fiber Dashboard health_check unreachable"
-          description: "The exporter has been unable to scrape /health_check for over 2 minutes."
+          summary: "[{{ $labels.env }}] Fiber Dashboard health_check unreachable ({{ $labels.network }})"
+          description: "[{{ $labels.env }}] The exporter has been unable to scrape /health_check for {{ $labels.network }} for over 5 minutes."
 
       - alert: FiberDashboardTaskStale
         expr: fiber_dashboard_heartbeat_healthy == 0
@@ -16,35 +16,35 @@ groups:
         labels:
           severity: warning
         annotations:
-          summary: "Fiber Dashboard task {{ $labels.task }} heartbeat is stale"
-          description: "The background task {{ $labels.task }} has not updated its heartbeat for over {{ $value }}s."
+          summary: "[{{ $labels.env }}] Fiber Dashboard task {{ $labels.task }} heartbeat is stale ({{ $labels.network }})"
+          description: "[{{ $labels.env }}] The background task {{ $labels.task }} on {{ $labels.network }} has not updated its heartbeat for over {{ $value }}s."
 
       - alert: FiberDashboardNetworkScrapeDown
         expr: fiber_dashboard_network_scrape_success == 0
-        for: 2m
+        for: 5m
         labels:
           severity: warning
         annotations:
-          summary: "Fiber Dashboard analysis_hourly unreachable for {{ $labels.network }}"
-          description: "The exporter has been unable to scrape /analysis_hourly for {{ $labels.network }} for over 2 minutes."
+          summary: "[{{ $labels.env }}] Fiber Dashboard analysis_hourly unreachable for {{ $labels.network }}"
+          description: "[{{ $labels.env }}] The exporter has been unable to scrape /analysis_hourly for {{ $labels.network }} for over 5 minutes."
 
       - alert: FiberDashboardNoNodes
         expr: fiber_dashboard_total_nodes == 0
         for: 10m
         labels:
-          severity: critical
+          severity: warning
         annotations:
-          summary: "No active nodes on {{ $labels.network }}"
-          description: "The Fiber Network {{ $labels.network }} reports 0 active nodes for over 10 minutes."
+          summary: "[{{ $labels.env }}] No active nodes on {{ $labels.network }}"
+          description: "[{{ $labels.env }}] The Fiber Network {{ $labels.network }} reports 0 active nodes for over 10 minutes."
 
       - alert: FiberDashboardNoChannels
         expr: fiber_dashboard_total_channels == 0
         for: 10m
         labels:
-          severity: critical
+          severity: warning
         annotations:
-          summary: "No active channels on {{ $labels.network }}"
-          description: "The Fiber Network {{ $labels.network }} reports 0 active channels for over 10 minutes."
+          summary: "[{{ $labels.env }}] No active channels on {{ $labels.network }}"
+          description: "[{{ $labels.env }}] The Fiber Network {{ $labels.network }} reports 0 active channels for over 10 minutes."
 
       - alert: FiberDashboardNodeCountDrop
         expr: delta(fiber_dashboard_total_nodes[1h]) < -5
@@ -52,26 +52,26 @@ groups:
         labels:
           severity: warning
         annotations:
-          summary: "Significant node count drop on {{ $labels.network }}"
-          description: "Node count on {{ $labels.network }} dropped by {{ $value }} in the last hour."
+          summary: "[{{ $labels.env }}] Significant node count drop on {{ $labels.network }}"
+          description: "[{{ $labels.env }}] Node count on {{ $labels.network }} dropped by {{ $value }} in the last hour."
 
       - alert: FiberDashboardApiEndpointDown
         expr: fiber_dashboard_api_up == 0
-        for: 2m
-        labels:
-          severity: critical
-        annotations:
-          summary: "API endpoint {{ $labels.endpoint }} is down ({{ $labels.network }})"
-          description: "The API endpoint {{ $labels.endpoint }} for {{ $labels.network }} has been returning non-2xx status for over 2 minutes. URL: {{ $labels.url }}"
-
-      - alert: FiberDashboardApiEndpointSlow
-        expr: fiber_dashboard_api_http_duration_seconds > 5
-        for: 2m
+        for: 5m
         labels:
           severity: warning
         annotations:
-          summary: "API endpoint {{ $labels.endpoint }} is slow ({{ $labels.network }})"
-          description: "The API endpoint {{ $labels.endpoint }} for {{ $labels.network }} has response time > 5s for over 2 minutes."
+          summary: "[{{ $labels.env }}] API endpoint {{ $labels.endpoint }} is down ({{ $labels.network }})"
+          description: "[{{ $labels.env }}] The API endpoint {{ $labels.endpoint }} for {{ $labels.network }} has been returning non-2xx status for over 5 minutes. URL: {{ $labels.url }}"
+
+      - alert: FiberDashboardApiEndpointSlow
+        expr: fiber_dashboard_api_http_duration_seconds > 5
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "[{{ $labels.env }}] API endpoint {{ $labels.endpoint }} is slow ({{ $labels.network }})"
+          description: "[{{ $labels.env }}] The API endpoint {{ $labels.endpoint }} for {{ $labels.network }} has response time > 5s for over 5 minutes."
 
       - alert: FiberDashboardEndpointScrapeDown
         expr: fiber_dashboard_endpoint_scrape_success == 0
@@ -79,8 +79,8 @@ groups:
         labels:
           severity: warning
         annotations:
-          summary: "Fiber Dashboard endpoint scrape failing"
-          description: "Endpoint {{ $labels.endpoint }} on network {{ $labels.network }} has been failing for 5 minutes."
+          summary: "[{{ $labels.env }}] Fiber Dashboard endpoint scrape failing ({{ $labels.network }})"
+          description: "[{{ $labels.env }}] Endpoint {{ $labels.endpoint }} on network {{ $labels.network }} has been failing for 5 minutes."
 
       - alert: FiberDashboardEndpointScrapeSlow
         expr: fiber_dashboard_endpoint_scrape_duration_seconds > 10
@@ -88,8 +88,8 @@ groups:
         labels:
           severity: warning
         annotations:
-          summary: "Fiber Dashboard endpoint scrape slow"
-          description: "Endpoint {{ $labels.endpoint }} on network {{ $labels.network }} is taking more than 10 seconds."
+          summary: "[{{ $labels.env }}] Fiber Dashboard endpoint scrape slow ({{ $labels.network }})"
+          description: "[{{ $labels.env }}] Endpoint {{ $labels.endpoint }} on network {{ $labels.network }} is taking more than 10 seconds."
 
       - alert: FiberDashboardCapacityDrop
         expr: delta(fiber_dashboard_total_capacity[1h]) < -1000000
@@ -97,14 +97,6 @@ groups:
         labels:
           severity: warning
         annotations:
-          summary: "Fiber Network capacity dropped significantly"
-          description: "Total capacity on {{ $labels.network }} dropped by more than 1M CKB in the last hour."
+          summary: "[{{ $labels.env }}] Fiber Network capacity dropped significantly ({{ $labels.network }})"
+          description: "[{{ $labels.env }}] Total capacity on {{ $labels.network }} dropped by more than 1M CKB in the last hour."
 
-      - alert: FiberDashboardScrapeErrorRateHigh
-        expr: rate(fiber_dashboard_scrape_errors_total[5m]) > 0.1
-        for: 10m
-        labels:
-          severity: warning
-        annotations:
-          summary: "High scrape error rate"
-          description: "The exporter error rate is above 0.1 errors/sec for 10 minutes."
