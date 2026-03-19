@@ -4,8 +4,8 @@ Prometheus exporter for the [Fiber Dashboard](https://github.com/cryptape/fiber-
 
 Polls the `/health_check` and `/analysis_hourly` endpoints and exposes
 heartbeat timestamps, total node counts, total channel counts, capacity,
-liquidity, geographic distribution, channel state breakdown, and more as
-Prometheus metrics — with **mainnet / testnet** breakdown.
+liquidity, channel state breakdown, and more as Prometheus metrics — with
+**mainnet / testnet** breakdown.
 
 ## Quick Start
 
@@ -76,32 +76,12 @@ The `task` label takes one of:
 
 The `network` label is `mainnet` or `testnet`.
 
-### Geographic distribution
-
-| Metric | Type | Labels | Description |
-|---|---|---|---|
-| `fiber_dashboard_region_nodes` | Gauge | `network`, `region` | Number of nodes in each geographic region |
-
 ### Channel state & capacity distribution
 
 | Metric | Type | Labels | Description |
 |---|---|---|---|
-| `fiber_dashboard_channel_count_by_state` | Gauge | `network`, `state` | Number of channels per state (open, closed_cooperative, etc.) |
-| `fiber_dashboard_channel_capacity_distribution` | Gauge | `network`, `range` | Number of channels in each capacity range |
-
-### Pagination totals
-
-| Metric | Type | Labels | Description |
-|---|---|---|---|
-| `fiber_dashboard_nodes_total_from_page` | Gauge | `network` | Total nodes from /nodes_hourly pagination metadata |
-| `fiber_dashboard_channels_total_from_page` | Gauge | `network` | Total channels from /channels_hourly pagination metadata |
-
-### Per-endpoint deep scrape status
-
-| Metric | Type | Labels | Description |
-|---|---|---|---|
-| `fiber_dashboard_endpoint_scrape_success` | Gauge | `network`, `endpoint` | `1` if the last deep scrape succeeded, `0` otherwise |
-| `fiber_dashboard_endpoint_scrape_duration_seconds` | Gauge | `network`, `endpoint` | Duration of the last deep scrape in seconds |
+| `fiber_dashboard_channel_count_by_state` | Gauge | `network`, `asset`, `state` | Number of channels per state (open, closed_cooperative, etc.) |
+| `fiber_dashboard_channel_capacity_distribution` | Gauge | `network`, `asset`, `range` | Number of channels in each capacity range |
 
 ### API endpoint availability
 
@@ -115,11 +95,10 @@ The `network` label is `mainnet` or `testnet`.
 - `network` label = `mainnet` or `testnet` (empty string `""` for `/health_check`)
 - `url` label = the full URL that was probed
 
-### Global error counter & exporter health
+### Exporter health
 
 | Metric | Type | Labels | Description |
 |---|---|---|---|
-| `fiber_dashboard_scrape_errors_total` | Counter | — | Cumulative number of scrape errors across all endpoints |
 | `fiber_dashboard_exporter_up` | Gauge | — | `1` if the exporter itself is healthy |
 
 ### Meta
@@ -163,8 +142,8 @@ endpoints:
 - If `endpoints.yaml` does not exist, endpoint monitoring is silently skipped.
 
 In addition to the HTTP probe results above, the exporter also performs **deep JSON parsing** of
-`/all_region`, `/channel_count_by_state`, `/channel_capacity_distribution`, `/nodes_hourly`, and
-`/channels_hourly` on every scrape cycle to extract richer business metrics.
+`/channel_count_by_state` and `/channel_capacity_distribution` on every scrape cycle to extract
+richer business metrics.
 
 ## Prometheus & Alerting
 
@@ -172,13 +151,24 @@ Add a scrape job to your `prometheus.yml`:
 
 ```yaml
 scrape_configs:
-  - job_name: fiber_dashboard
+  - job_name: fiber_dashboard_prod
     static_configs:
       - targets:
           - "localhost:9101"
         labels:
           env: prod
+
+  - job_name: fiber_dashboard_staging
+    static_configs:
+      - targets:
+          - "staging-host:9101"
+        labels:
+          env: staging
 ```
+
+The `env` label is referenced in the alerting rules (e.g. `{{ $labels.env }}`) to identify which
+environment triggered the alert. Set it to any value that makes sense for your deployment (e.g.
+`prod`, `staging`, `dev`).
 
 See [`alerts.yml`](alerts.yml) for example Prometheus alerting rules.
 
