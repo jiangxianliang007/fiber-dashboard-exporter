@@ -38,11 +38,16 @@ cp .env.example .env
 # 3. Start the exporter
 docker compose up -d
 
-# 4. Check logs
+# 4. Update the latest image and recreate the container when a new image is published
+docker compose pull && docker compose up -d
+
+# 5. Check logs
 docker compose logs -f
 ```
 
 Metrics are available at `http://localhost:9101/metrics` (or the port you configured in `.env`).
+The `latest` tag does not replace an already running container automatically, so run
+`docker compose pull && docker compose up -d` when you want to update to the newest image.
 
 ## Metrics
 
