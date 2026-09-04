@@ -1,8 +1,7 @@
 services:
   fiber-dashboard-exporter:
-    build:
-      context: .
-      dockerfile: Dockerfile
+    image: ghcr.io/jiangxianliang007/fiber-dashboard-monitor:latest
+    pull_policy: always
     container_name: fiber-dashboard-exporter
     ports:
       - "${LISTEN_PORT:-9101}:${LISTEN_PORT:-9101}"
